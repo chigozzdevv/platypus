@@ -13,7 +13,6 @@ export const validate = (
       const dataToValidate = req[target];
       const validatedData = schema.parse(dataToValidate);
       
-      // Replace the original data with validated and potentially transformed data
       (req as any)[target] = validatedData;
       
       next();

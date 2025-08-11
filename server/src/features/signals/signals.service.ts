@@ -132,6 +132,16 @@ class SignalsService {
       throw new CustomError('SIGNAL_NOT_ACTIVE', 400, 'Only active signals can be improved');
     }
 
+    // Check if signal already has an improvement (only 1 improvement allowed per signal)
+    if (signal.improvements && signal.improvements.length > 0) {
+      throw new CustomError('SIGNAL_ALREADY_IMPROVED', 400, 'This signal has already been improved by another user');
+    }
+
+    // Check if user is trying to improve their own signal
+    if (signal.creator.toString() === userId) {
+      throw new CustomError('CANNOT_IMPROVE_OWN_SIGNAL', 400, 'You cannot improve your own signal');
+    }
+
     const qualityScore = await this.assessImprovementQuality(signal, improvement);
     
     if (qualityScore < 60) {
@@ -171,7 +181,7 @@ class SignalsService {
   } = {}): Promise<{ signals: any[]; total: number }> {
     const query: any = { 
       status: 'active',
-      improvements: { $exists: true, $not: { $size: 0 } } // Only signals with improvements
+      improvements: { $exists: true, $size: 1 } // Only signals with exactly 1 improvement
     };
 
     if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
@@ -626,11 +636,10 @@ class SignalsService {
     const query: any = {
       isPublic: true,
       status: 'active',
-      // Only base signals (not improvements) - signals without improvements or with few improvements
+      // Only signals with no improvements (1 improvement per signal rule)
       $or: [
         { improvements: { $exists: false } },
-        { improvements: { $size: 0 } },
-        { 'improvements.0': { $exists: true }, 'improvements.4': { $exists: false } } // Max 5 improvements
+        { improvements: { $size: 0 } }
       ],
       // Not expired
       expiresAt: { $gte: new Date() },

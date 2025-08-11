@@ -17,7 +17,6 @@ export class CustomError extends Error {
     this.statusCode = statusCode;
     this.details = details;
 
-    // Maintains proper stack trace for where our error was thrown (only available on V8)
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, CustomError);
     }
@@ -38,7 +37,6 @@ export const errorMiddleware = (
     ip: req.ip,
   });
 
-  // Zod validation errors
   if (error instanceof ZodError) {
     const validationErrors = error.errors.map(err => ({
       path: err.path.join('.'),
@@ -50,7 +48,6 @@ export const errorMiddleware = (
     return;
   }
 
-  // MongoDB errors
   if (error instanceof MongoError) {
     switch (error.code) {
       case '11000':
@@ -65,7 +62,6 @@ export const errorMiddleware = (
     }
   }
 
-  // JWT errors
   if (error.name === 'JsonWebTokenError') {
     sendError(res, ERROR_CODES.UNAUTHORIZED, 'Invalid token', 401);
     return;
@@ -76,13 +72,11 @@ export const errorMiddleware = (
     return;
   }
 
-  // Custom application errors
   if (error.statusCode && error.code) {
     sendError(res, error.code, error.message, error.statusCode, error.details);
     return;
   }
 
-  // Default server error
   const message = isDevelopment ? error.message : 'Internal server error';
   sendError(res, 'INTERNAL_ERROR', message, 500, isDevelopment ? error.stack : undefined);
 };
@@ -98,3 +92,5 @@ export const asyncHandler = (
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 };
+
+export { errorMiddleware as errorHandler };

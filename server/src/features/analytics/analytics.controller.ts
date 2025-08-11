@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { analyticsService } from './analytics.service';
-import { sendSuccess, sendError } from '@/shared/utils/responses';
+import { sendSuccess} from '@/shared/utils/responses';
 import { logger } from '@/shared/utils/logger';
 import { asyncHandler } from '@/shared/middleware/error.middleware';
 
