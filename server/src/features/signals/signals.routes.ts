@@ -7,7 +7,7 @@ import { z } from 'zod';
 const router = Router();
 
 const createSignalSchema = z.object({
-  symbol: z.string().min(1).max(10).toUpperCase(),
+  symbol: z.string().min(1).max(10).toUpperCase().optional(),
   aiModel: z.enum(['gpt-4o', 'gpt-4o-mini']).default('gpt-4o-mini'),
   accountBalance: z.number().positive().optional(),
 });

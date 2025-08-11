@@ -94,24 +94,41 @@ Dashboard
 #### **Generate New Signals**
 **Endpoint**: `POST /api/signals/`
 
-**Current Implementation:**
-- **Required Input**: Symbol (e.g., "BTC-USD")
-- **Optional**: AI model, account balance
+**Two Generation Modes:**
+
+**Mode 1: Smart Auto-Selection** (Recommended - No symbol needed)
+```json
+POST /api/signals/
+{
+  "aiModel": "gpt-4o-mini"
+}
+```
 
 **Process:**
-1. **User Input**: Specify trading symbol
-2. **Market Validation**: Verify symbol availability and liquidity on Hyperliquid  
-3. **AI Analysis**: System analyzes win rates, patterns, sentiment for that symbol
-4. **Signal Generation**: AI creates optimized trading signal based on analysis
+1. **Top Opportunities Scan**: System scans 30+ Hyperliquid symbols automatically
+2. **Win Rate Prioritization**: Finds symbols with >70% historical win rates
+3. **Auto Symbol Selection**: Picks the single best opportunity (highest win rate + score)
+4. **Signal Generation**: AI creates optimized trading signal for selected symbol
 5. **Auto IP Minting**: Automatically mint signal as IP NFT on Camp Network
-6. **Signal Storage**: Save with IP tokenID and transaction hash
 
-**Available Enhancement** (not yet implemented):
-The system has `findTopOpportunities()` capability to scan all symbols and auto-select the highest win rate opportunities, but currently requires manual symbol input.
+**Mode 2: Manual Symbol Selection** (Optional)
+```json  
+POST /api/signals/
+{
+  "symbol": "BTC-USD",
+  "aiModel": "gpt-4o-mini"
+}
+```
 
-**Result:**
+**Process:**
+1. **User Input**: Specify exact trading symbol  
+2. **Market Validation**: Verify symbol availability and liquidity
+3. **Signal Generation**: AI creates signal for specified symbol
+4. **Auto IP Minting**: Automatically mint signal as IP NFT on Camp Network
+
+**Result for both modes:**
 - Signal appears on Signals page immediately
-- Available for improvement by other users
+- Available for improvement by other users (one improvement per signal)
 
 **Signal Data Structure:**
 ```json
@@ -273,13 +290,12 @@ The system has `findTopOpportunities()` capability to scan all symbols and auto-
 }
 ```
 
-#### **Withdrawal System**
-**Endpoint**: `POST /api/wallet/withdraw` *(Future Enhancement)*
-
-**Features:**
-- **Balance Overview**: Available earnings breakdown
-- **Withdrawal Options**: Direct to wallet, reinvest in platform
-- **Transaction History**: Complete earnings and withdrawal log
+#### **Revenue Distribution**
+**Handled by Camp Network automatically:**
+- **Automatic Payments**: Revenue splits (40/60) distributed on each IP purchase
+- **Blockchain Native**: All payments go directly to creators' wallets via Camp Network
+- **No Manual Withdrawal**: Earnings are automatically distributed on purchase
+- **Transaction History**: All revenue tracked on-chain via Camp Network
 
 ---
 

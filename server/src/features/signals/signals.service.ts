@@ -6,7 +6,7 @@ import { logger } from '@/shared/utils/logger';
 import { CustomError } from '@/shared/middleware/error.middleware';
 
 export interface CreateSignalParams {
-  symbol: string;
+  symbol?: string;
   aiModel?: 'gpt-4o' | 'gpt-4o-mini';
   accountBalance?: number;
 }
@@ -46,8 +46,31 @@ class SignalsService {
         ? await tradingService.analyzePerformance(userSignals)
         : undefined;
 
+      // Auto-select symbol if not provided using top opportunities scan
+      let selectedSymbol = params.symbol;
+      if (!selectedSymbol) {
+        logger.info('No symbol provided, scanning for top opportunities', { userId });
+        const { opportunities } = await tradingService.findTopOpportunities(credentials.privateKey, {
+          maxSymbols: 30,
+          minVolume: 1000000,
+          topCount: 1 // Get the single best opportunity
+        });
+        
+        if (opportunities.length === 0) {
+          throw new CustomError('NO_OPPORTUNITIES', 400, 'No suitable trading opportunities found in current market conditions');
+        }
+        
+        selectedSymbol = opportunities[0].symbol;
+        logger.info('Auto-selected symbol from top opportunities', { 
+          userId, 
+          selectedSymbol, 
+          winRate: opportunities[0].winRate,
+          score: opportunities[0].score 
+        });
+      }
+
       const tradingSignal = await tradingService.generateTradingSignal(
-        params.symbol,
+        selectedSymbol,
         accountBalance,
         credentials.privateKey,
         historicalPerformance
