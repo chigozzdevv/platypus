@@ -7,12 +7,15 @@ import { TradingSignal, MarketData, HistoricalPerformance, MarketOpportunity, Pa
 class TradingService {
   async generateTradingSignal(
     symbol: string,
-    accountBalance: number,
-    privateKey: string,
+    accountBalance?: number,
+    privateKey?: string, 
     historicalPerformance?: HistoricalPerformance
   ): Promise<TradingSignal> {
     try {
-      const client = hyperliquidService.getOrCreateClient(privateKey);
+
+      const defaultBalance = accountBalance || 10000; // Platform reference balance
+      const client = privateKey ? hyperliquidService.getOrCreateClient(privateKey) : hyperliquidService.createClient();
+      
       const allMids = await client.info.getAllMids();
       const currentPrice = hyperliquidService.getPriceFromAllMids(allMids, symbol);
       
@@ -25,10 +28,12 @@ class TradingService {
         throw new CustomError('INVALID_SYMBOL', 400, `Symbol ${symbol} is not valid for trading`);
       }
       
-      const marketData = await this.getEnhancedMarketData(privateKey, symbol);
+      // Use public market data methods (no privateKey needed)
+      const platformKey: string | undefined = undefined;
+      const marketData = await this.getEnhancedMarketData(platformKey, symbol);
       
       if (marketData.volume24h < 100000) {
-        logger.warn(`Low volume warning for ${symbol}: $${marketData.volume24h.toLocaleString()}`);
+        logger.warn(`Low volume warning for ${symbol}: ${marketData.volume24h.toLocaleString()}`);
       }
       
       if (marketData.avgVolatility > 50) {
@@ -36,12 +41,12 @@ class TradingService {
       }
       
       const fearGreedIndex = await this.getFearGreedIndex();
-      const patterns = await this.recognizePatterns(privateKey, symbol);
+      const patterns = await this.recognizePatterns(platformKey, symbol);
       
       const prompt = this.buildAdvancedAnalysisPrompt(
         symbol,
         marketData,
-        accountBalance,
+        defaultBalance, // Use defaultBalance instead of accountBalance
         fearGreedIndex,
         patterns,
         historicalPerformance
@@ -73,11 +78,12 @@ class TradingService {
         qualityReasons: qualityScore.reasons,
       };
       
-      logger.info('Generic trading signal generated', {
+      logger.info('Trading signal generated', {
         symbol,
         winRate: marketData.winRate,
         confidence: finalSignal.confidence,
         side: finalSignal.side,
+        platform: !privateKey, // Log if this is a platform-generated signal
       });
 
       return {
@@ -638,8 +644,8 @@ class TradingService {
     };
   }
 
-  private async getEnhancedMarketData(privateKey: string, coin: string): Promise<MarketData> {
-    const client = hyperliquidService.getOrCreateClient(privateKey);
+  private async getEnhancedMarketData(privateKey: string | undefined, coin: string): Promise<MarketData> {
+    const client = privateKey ? hyperliquidService.getOrCreateClient(privateKey) : hyperliquidService.createClient();
     const marketData = await hyperliquidService.getEnhancedMarketData(client, coin);
 
     return {
@@ -659,8 +665,8 @@ class TradingService {
     };
   }
 
-  private async recognizePatterns(privateKey: string, symbol: string): Promise<PatternRecognition> {
-    const client = hyperliquidService.getOrCreateClient(privateKey);
+  private async recognizePatterns(privateKey: string | undefined, symbol: string): Promise<PatternRecognition> {
+    const client = privateKey ? hyperliquidService.getOrCreateClient(privateKey) : hyperliquidService.createClient();
     const coin = hyperliquidService.getApiCoin(symbol);
     const patterns: PatternRecognition['patterns'] = [];
     const timeframes = ["1h", "4h"];

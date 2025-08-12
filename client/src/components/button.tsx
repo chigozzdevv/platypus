@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 
 interface ButtonProps {
   children: React.ReactNode;
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'outline';
   size?: 'sm' | 'md' | 'lg';
   href?: string;
   to?: string;
@@ -31,6 +31,7 @@ export default function Button({
   const variantStyles = {
     primary: 'bg-neutral-900 text-white hover:bg-neutral-800 disabled:hover:bg-neutral-900',
     secondary: 'bg-white text-neutral-900 border border-neutral-200 hover:bg-neutral-50 disabled:hover:bg-white',
+    outline: 'bg-transparent text-neutral-700 border border-neutral-300 hover:bg-neutral-50 disabled:hover:bg-transparent',
   };
   
   const sizeStyles = {

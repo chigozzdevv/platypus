@@ -4,6 +4,7 @@ import { tradingService } from '../trading/trading.service';
 import { authService } from '../auth/auth.service';
 import { logger } from '@/shared/utils/logger';
 import { CustomError } from '@/shared/middleware/error.middleware';
+import { env } from '@/shared/config/env';
 
 export interface CreateSignalParams {
   symbol?: string;
@@ -20,6 +21,86 @@ export interface ImproveSignalParams {
 }
 
 class SignalsService {
+  // Platform-level automated signal generation
+  async generatePlatformSignals(count: number = 50): Promise<SignalDocument[]> {
+    try {
+      logger.info('Starting platform signal generation', { targetCount: count });
+
+      const { opportunities } = await tradingService.findTopOpportunities(undefined, {
+        maxSymbols: 100,
+        minVolume: 1000000,
+        topCount: count
+      });
+
+      if (opportunities.length === 0) {
+        logger.warn('No opportunities found for platform signal generation');
+        return [];
+      }
+
+      const generatedSignals: SignalDocument[] = [];
+
+      for (const opportunity of opportunities) {
+        try {
+          const tradingSignal = await tradingService.generateTradingSignal(
+            opportunity.symbol,
+            10000,
+            undefined
+          );
+
+          const signal = new Signal({
+            creator: 'platform',
+            aiModel: 'gpt-4o-mini',
+            ...tradingSignal,
+            status: 'active',
+            isPublic: true,
+            isPlatformGenerated: true
+          });
+
+          await signal.save();
+
+          // Auto-mint as IP NFT using platform wallet
+          const { campService } = await import('../ip/camp.service');
+          
+          const baseIPRegistration = await campService.registerSignalAsIP(
+            signal,
+            null,
+            env.PLATFORM_WALLET_PRIVATE_KEY,
+            env.PLATFORM_WALLET_ADDRESS
+          );
+          
+          signal.registeredAsIP = true;
+          signal.ipTokenId = baseIPRegistration.tokenId;
+          signal.ipTransactionHash = baseIPRegistration.transactionHash;
+          await signal.save();
+
+          generatedSignals.push(signal);
+          
+          logger.info('Platform signal generated and minted', { 
+            signalId: signal._id,
+            symbol: opportunity.symbol,
+            winRate: opportunity.winRate,
+            tokenId: baseIPRegistration.tokenId
+          });
+
+        } catch (error) {
+          logger.error('Failed to generate platform signal', { error, symbol: opportunity.symbol });
+          continue;
+        }
+      }
+
+      logger.info('Platform signal generation completed', { 
+        generated: generatedSignals.length,
+        target: count 
+      });
+
+      return generatedSignals;
+    } catch (error) {
+      logger.error('Platform signal generation failed', { error });
+      throw new CustomError('PLATFORM_SIGNAL_GENERATION_ERROR', 500, 'Failed to generate platform signals');
+    }
+  }
+
+  // User-initiated signal creation (legacy support, requires credentials)
   async createAISignal(
     userId: string,
     params: CreateSignalParams
@@ -32,7 +113,7 @@ class SignalsService {
 
       const credentials = await authService.getExchangeCredentials(userId, 'hyperliquid');
       if (!credentials) {
-        throw new CustomError('CREDENTIALS_REQUIRED', 400, 'Hyperliquid credentials required for signal generation');
+        throw new CustomError('CREDENTIALS_REQUIRED', 400, 'Hyperliquid credentials required for user signal generation');
       }
 
       const accountBalance = params.accountBalance || (await tradingService.getAccountBalance(credentials.privateKey, credentials.walletAddress));
@@ -46,27 +127,19 @@ class SignalsService {
         ? await tradingService.analyzePerformance(userSignals)
         : undefined;
 
-      // Auto-select symbol if not provided using top opportunities scan
       let selectedSymbol = params.symbol;
       if (!selectedSymbol) {
-        logger.info('No symbol provided, scanning for top opportunities', { userId });
         const { opportunities } = await tradingService.findTopOpportunities(credentials.privateKey, {
           maxSymbols: 30,
           minVolume: 1000000,
-          topCount: 1 // Get the single best opportunity
+          topCount: 1
         });
         
         if (opportunities.length === 0) {
-          throw new CustomError('NO_OPPORTUNITIES', 400, 'No suitable trading opportunities found in current market conditions');
+          throw new CustomError('NO_OPPORTUNITIES', 400, 'No suitable trading opportunities found');
         }
         
         selectedSymbol = opportunities[0].symbol;
-        logger.info('Auto-selected symbol from top opportunities', { 
-          userId, 
-          selectedSymbol, 
-          winRate: opportunities[0].winRate,
-          score: opportunities[0].score 
-        });
       }
 
       const tradingSignal = await tradingService.generateTradingSignal(
@@ -87,32 +160,22 @@ class SignalsService {
       await signal.save();
       
       const { campService } = await import('../ip/camp.service');
-      const { env } = await import('@/shared/config/env');
       
       const baseIPRegistration = await campService.registerSignalAsIP(
         signal,
         null, 
-        env.PLATFORM_WALLET_PRIVATE_KEY,
-        env.PLATFORM_WALLET_ADDRESS
+        credentials.privateKey,
+        credentials.walletAddress
       );
       
       signal.registeredAsIP = true;
       signal.ipTokenId = baseIPRegistration.tokenId;
       signal.ipTransactionHash = baseIPRegistration.transactionHash;
       await signal.save();
-      
-      logger.info('Base signal registered as IP', { 
-        signalId: signal._id, 
-        tokenId: baseIPRegistration.tokenId,
-        transactionHash: baseIPRegistration.transactionHash
-      });
-
-      logger.info('AI signal created successfully', { userId, signalId: signal._id, symbol: params.symbol });
 
       return signal;
     } catch (error) {
-      logger.error('Failed to create AI signal', { error, userId, params });
-      // Re-throw custom errors, wrap others
+      logger.error('Failed to create user AI signal', { error, userId, params });
       if (error instanceof CustomError) throw error;
       throw new CustomError('SIGNAL_CREATION_ERROR', 500, 'Could not create AI signal.');
     }
@@ -155,12 +218,10 @@ class SignalsService {
       throw new CustomError('SIGNAL_NOT_ACTIVE', 400, 'Only active signals can be improved');
     }
 
-    // Check if signal already has an improvement (only 1 improvement allowed per signal)
     if (signal.improvements && signal.improvements.length > 0) {
       throw new CustomError('SIGNAL_ALREADY_IMPROVED', 400, 'This signal has already been improved by another user');
     }
 
-    // Check if user is trying to improve their own signal
     if (signal.creator.toString() === userId) {
       throw new CustomError('CANNOT_IMPROVE_OWN_SIGNAL', 400, 'You cannot improve your own signal');
     }
@@ -172,7 +233,7 @@ class SignalsService {
         `Improvement quality too low (${qualityScore}/100). Please provide more substantive changes and reasoning.`);
     }
 
-    const revenueShare = 0.6; // Fixed 60% revenue share for all accepted improvements
+    const revenueShare = 0.6;
 
     signal.improvements.push({
       user: userId,
@@ -186,11 +247,9 @@ class SignalsService {
 
     if (improvement.newExpiryTime) {
       signal.expiresAt = improvement.newExpiryTime;
-      logger.info('Signal expiry updated', { signalId, newExpiry: improvement.newExpiryTime });
     }
 
     await signal.save();
-    logger.info('Signal improvement added', { signalId, userId, qualityScore, revenueShare });
     return signal;
   }
   
@@ -204,7 +263,7 @@ class SignalsService {
   } = {}): Promise<{ signals: any[]; total: number }> {
     const query: any = { 
       status: 'active',
-      improvements: { $exists: true, $size: 1 } // Only signals with exactly 1 improvement
+      improvements: { $exists: true, $size: 1 }
     };
 
     if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
@@ -228,7 +287,6 @@ class SignalsService {
       Signal.countDocuments(query)
     ]);
 
-    // Return preview version only
     const previewSignals = signals.map(signal => ({
       id: signal._id,
       symbol: signal.symbol,
@@ -258,12 +316,10 @@ class SignalsService {
 
     if (!signal) return null;
 
-    // Check if signal or any improvement is registered as IP
     const hasIPRegistration = signal.registeredAsIP || 
       signal.improvements?.some(imp => imp.registeredAsIP);
 
     if (!hasIPRegistration) {
-
       return signal;
     }
 
@@ -276,14 +332,12 @@ class SignalsService {
         throw new CustomError('CREDENTIALS_REQUIRED', 400, 'Wallet credentials required');
       }
 
-      // Check access for the main signal
       let hasAccess = false;
       if (signal.ipTokenId) {
         const accessInfo = await campService.checkAccess(signal.ipTokenId, credentials.walletAddress);
         hasAccess = accessInfo.hasAccess;
       }
 
-      // Check access for improvements
       if (!hasAccess && signal.improvements) {
         for (const improvement of signal.improvements) {
           if (improvement.ipTokenId) {
@@ -307,218 +361,44 @@ class SignalsService {
     }
   }
 
-  async refreshExpiredSignals(userId: string, symbol?: string): Promise<SignalDocument[]> {
-    const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
-    
-    const query: any = {
-      status: 'active',
-      createdAt: { $lt: thirtyMinsAgo }
-    };
-    
-    if (symbol) query.symbol = symbol.toUpperCase();
-
-    const expiredSignals = await Signal.find(query).limit(10);
-    const newSignals: SignalDocument[] = [];
-
-    for (const oldSignal of expiredSignals) {
-      try {
-        // Mark old signal as expired
-        oldSignal.status = 'expired';
-        await oldSignal.save();
-
-        // Generate new signal for same symbol
-        const newSignal = await this.createAISignal(userId, {
-          symbol: oldSignal.symbol,
-          aiModel: oldSignal.aiModel
-        });
-
-        newSignals.push(newSignal);
-      } catch (error) {
-        logger.warn(`Failed to refresh signal for ${oldSignal.symbol}`, { error });
-      }
-    }
-
-    return newSignals;
-  }
-
-  async getFilteredSignals(filters: {
+  async getImprovableSignals(filters: {
     symbol?: string;
-    side?: 'long' | 'short';
     minConfidence?: number;
-    maxAge?: number; // in minutes
-    status?: string;
+    sortBy?: 'newest' | 'confidence' | 'performance';
     limit?: number;
     offset?: number;
   } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
-    const query: any = {};
+    const query: any = {
+      isPublic: true,
+      status: 'active',
+      $or: [
+        { improvements: { $exists: false } },
+        { improvements: { $size: 0 } }
+      ],
+      expiresAt: { $gte: new Date() },
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    };
 
     if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
-    if (filters.side) query.side = filters.side;
     if (filters.minConfidence) query.confidence = { $gte: filters.minConfidence };
-    if (filters.status) query.status = filters.status;
-    
-    if (filters.maxAge) {
-      const maxAgeDate = new Date(Date.now() - filters.maxAge * 60 * 1000);
-      query.createdAt = { $gte: maxAgeDate };
-    }
 
     const limit = Math.min(filters.limit || 20, 100);
     const offset = filters.offset || 0;
 
+    let sortOption: any = { createdAt: -1 };
+    if (filters.sortBy === 'confidence') sortOption = { confidence: -1 };
+    if (filters.sortBy === 'performance') sortOption = { 'performance.actualReturn': -1 };
+
     const [signals, total] = await Promise.all([
       Signal.find(query)
         .populate('creator', 'username avatar reputation')
-        .sort({ createdAt: -1 })
+        .sort(sortOption)
         .limit(limit)
         .skip(offset),
       Signal.countDocuments(query)
     ]);
 
     return { signals, total };
-  }
-
-  async expireOldSignals(): Promise<void> {
-    const result = await Signal.updateMany(
-      { status: 'active', expiresAt: { $lt: new Date() } },
-      { 
-        status: 'expired',
-        'performance.outcome': 'breakeven',
-        'performance.exitReason': 'expired',
-        'performance.closedAt': new Date()
-      }
-    );
-
-    if (result.modifiedCount > 0) {
-      logger.info(`Expired ${result.modifiedCount} old signals.`);
-    }
-  }
-
-  private async assessImprovementQuality(
-    originalSignal: SignalDocument, 
-    improvement: ImproveSignalParams
-  ): Promise<number> {
-    let score = 0;
-
-    if (improvement.reasoning && improvement.reasoning.length >= 50) {
-      score += 20;
-      if (improvement.reasoning.length >= 100) score += 5;
-    }
-
-    const hasSubstantiveChanges = this.hasSubstantiveChanges(improvement);
-    if (hasSubstantiveChanges) {
-      score += 25;
-    }
-
-    const hasLogicalAdjustments = this.validateAdjustments(originalSignal, improvement);
-    if (hasLogicalAdjustments) {
-      score += 25;
-    }
-
-    const providesNewInsights = await this.checkForNewInsights(originalSignal, improvement);
-    if (providesNewInsights) {
-      score += 25;
-    }
-
-    const grammarScore = this.checkGrammarCoherence(improvement.reasoning);
-    score += Math.min(10, grammarScore);
-
-    return Math.min(100, Math.max(0, score));
-  }
-
-  private hasSubstantiveChanges(improvement: ImproveSignalParams): boolean {
-    if (improvement.improvementType === 'entry-adjustment' && improvement.originalValue !== improvement.improvedValue) {
-      const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
-      return changePercent > 0.005; // At least 0.5% change
-    }
-
-    if (improvement.improvementType === 'stop-loss-adjustment' && improvement.originalValue !== improvement.improvedValue) {
-      const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
-      return changePercent > 0.01; // At least 1% change
-    }
-
-    if (improvement.improvementType === 'take-profit-adjustment' && improvement.originalValue !== improvement.improvedValue) {
-      const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
-      return changePercent > 0.01; // At least 1% change
-    }
-
-    if (improvement.improvementType === 'analysis-enhancement') {
-      return typeof improvement.reasoning === 'string' && improvement.reasoning.length > 80;
-    }
-
-    return false;
-  }
-
-  private validateAdjustments(originalSignal: SignalDocument, improvement: ImproveSignalParams): boolean {
-    const entryPrice = originalSignal.entryPrice;
-    const stopLoss = originalSignal.stopLoss;
-    const takeProfit = originalSignal.takeProfit;
-    const side = originalSignal.side;
-
-    if (improvement.improvementType === 'entry-adjustment') {
-      const newEntry = improvement.improvedValue;
-      
-      if (side === 'long') {
-        return newEntry > stopLoss && newEntry < takeProfit;
-      } else {
-        return newEntry < stopLoss && newEntry > takeProfit;
-      }
-    }
-
-    if (improvement.improvementType === 'stop-loss-adjustment') {
-      const newStop = improvement.improvedValue;
-      
-      if (side === 'long') {
-        return newStop < entryPrice && newStop < takeProfit;
-      } else {
-        return newStop > entryPrice && newStop > takeProfit;
-      }
-    }
-
-    if (improvement.improvementType === 'take-profit-adjustment') {
-      const newTarget = improvement.improvedValue;
-      
-      if (side === 'long') {
-        return newTarget > entryPrice && newTarget > stopLoss;
-      } else {
-        return newTarget < entryPrice && newTarget < stopLoss;
-      }
-    }
-
-    return true;
-  }
-
-  private async checkForNewInsights(originalSignal: SignalDocument, improvement: ImproveSignalParams): Promise<boolean> {
-    const reasoning = improvement.reasoning?.toLowerCase() || '';
-    
-    const insightKeywords = [
-      'support', 'resistance', 'volume', 'momentum', 'trend', 'pattern',
-      'fibonacci', 'ma', 'rsi', 'macd', 'bollinger', 'institutional',
-      'liquidity', 'breakout', 'breakdown', 'consolidation', 'divergence'
-    ];
-
-    const keywordMatches = insightKeywords.filter(keyword => reasoning.includes(keyword)).length;
-    
-    return keywordMatches >= 2 && reasoning.length > 60;
-  }
-
-  private checkGrammarCoherence(text: string): number {
-    if (!text || text.length < 20) return 0;
-    
-    let score = 5; // Base score
-    
-    if (text.includes('.') || text.includes('!') || text.includes('?')) score += 2;
-    
-    const wordCount = text.split(' ').length;
-    if (wordCount >= 15) score += 2;
-    
-    if (!/^\s/.test(text) && !/\s$/.test(text.trim())) score += 1;
-    
-    return score;
-  }
-
-  private calculateRevenueShare(qualityScore: number): number {
-    // Simplified: Fixed 60% revenue share for all accepted improvements
-    return 0.6;
   }
 
   async getPublicSignals(filters: {
@@ -551,6 +431,22 @@ class SignalsService {
     ]);
 
     return { signals, total };
+  }
+
+  async expireOldSignals(): Promise<void> {
+    const result = await Signal.updateMany(
+      { status: 'active', expiresAt: { $lt: new Date() } },
+      { 
+        status: 'expired',
+        'performance.outcome': 'breakeven',
+        'performance.exitReason': 'expired',
+        'performance.closedAt': new Date()
+      }
+    );
+
+    if (result.modifiedCount > 0) {
+      logger.info(`Expired ${result.modifiedCount} old signals.`);
+    }
   }
 
   async updateSignalPerformance(signalId: string, performance: {
@@ -648,47 +544,127 @@ class SignalsService {
     return { signals, total };
   }
 
-  async getImprovableSignals(filters: {
-    symbol?: string;
-    minConfidence?: number;
-    sortBy?: 'newest' | 'confidence' | 'performance';
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
-    const query: any = {
-      isPublic: true,
-      status: 'active',
-      // Only signals with no improvements (1 improvement per signal rule)
-      $or: [
-        { improvements: { $exists: false } },
-        { improvements: { $size: 0 } }
-      ],
-      // Not expired
-      expiresAt: { $gte: new Date() },
-      // Created in last 24 hours (fresh signals worth improving)
-      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-    };
+  private async assessImprovementQuality(
+    originalSignal: SignalDocument, 
+    improvement: ImproveSignalParams
+  ): Promise<number> {
+    let score = 0;
 
-    if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
-    if (filters.minConfidence) query.confidence = { $gte: filters.minConfidence };
+    if (improvement.reasoning && improvement.reasoning.length >= 50) {
+      score += 20;
+      if (improvement.reasoning.length >= 100) score += 5;
+    }
 
-    const limit = Math.min(filters.limit || 20, 100);
-    const offset = filters.offset || 0;
+    const hasSubstantiveChanges = this.hasSubstantiveChanges(improvement);
+    if (hasSubstantiveChanges) {
+      score += 25;
+    }
 
-    let sortOption: any = { createdAt: -1 };
-    if (filters.sortBy === 'confidence') sortOption = { confidence: -1 };
-    if (filters.sortBy === 'performance') sortOption = { 'performance.actualReturn': -1 };
+    const hasLogicalAdjustments = this.validateAdjustments(originalSignal, improvement);
+    if (hasLogicalAdjustments) {
+      score += 25;
+    }
 
-    const [signals, total] = await Promise.all([
-      Signal.find(query)
-        .populate('creator', 'username avatar reputation')
-        .sort(sortOption)
-        .limit(limit)
-        .skip(offset),
-      Signal.countDocuments(query)
-    ]);
+    const providesNewInsights = await this.checkForNewInsights(originalSignal, improvement);
+    if (providesNewInsights) {
+      score += 25;
+    }
 
-    return { signals, total };
+    const grammarScore = this.checkGrammarCoherence(improvement.reasoning);
+    score += Math.min(10, grammarScore);
+
+    return Math.min(100, Math.max(0, score));
+  }
+
+  private hasSubstantiveChanges(improvement: ImproveSignalParams): boolean {
+    if (improvement.improvementType === 'entry-adjustment' && improvement.originalValue !== improvement.improvedValue) {
+      const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
+      return changePercent > 0.005;
+    }
+
+    if (improvement.improvementType === 'stop-loss-adjustment' && improvement.originalValue !== improvement.improvedValue) {
+      const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
+      return changePercent > 0.01;
+    }
+
+    if (improvement.improvementType === 'take-profit-adjustment' && improvement.originalValue !== improvement.improvedValue) {
+      const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
+      return changePercent > 0.01;
+    }
+
+    if (improvement.improvementType === 'analysis-enhancement') {
+      return typeof improvement.reasoning === 'string' && improvement.reasoning.length > 80;
+    }
+
+    return false;
+  }
+
+  private validateAdjustments(originalSignal: SignalDocument, improvement: ImproveSignalParams): boolean {
+    const entryPrice = originalSignal.entryPrice;
+    const stopLoss = originalSignal.stopLoss;
+    const takeProfit = originalSignal.takeProfit;
+    const side = originalSignal.side;
+
+    if (improvement.improvementType === 'entry-adjustment') {
+      const newEntry = improvement.improvedValue;
+      
+      if (side === 'long') {
+        return newEntry > stopLoss && newEntry < takeProfit;
+      } else {
+        return newEntry < stopLoss && newEntry > takeProfit;
+      }
+    }
+
+    if (improvement.improvementType === 'stop-loss-adjustment') {
+      const newStop = improvement.improvedValue;
+      
+      if (side === 'long') {
+        return newStop < entryPrice && newStop < takeProfit;
+      } else {
+        return newStop > entryPrice && newStop > takeProfit;
+      }
+    }
+
+    if (improvement.improvementType === 'take-profit-adjustment') {
+      const newTarget = improvement.improvedValue;
+      
+      if (side === 'long') {
+        return newTarget > entryPrice && newTarget > stopLoss;
+      } else {
+        return newTarget < entryPrice && newTarget < stopLoss;
+      }
+    }
+
+    return true;
+  }
+
+  private async checkForNewInsights(originalSignal: SignalDocument, improvement: ImproveSignalParams): Promise<boolean> {
+    const reasoning = improvement.reasoning?.toLowerCase() || '';
+    
+    const insightKeywords = [
+      'support', 'resistance', 'volume', 'momentum', 'trend', 'pattern',
+      'fibonacci', 'ma', 'rsi', 'macd', 'bollinger', 'institutional',
+      'liquidity', 'breakout', 'breakdown', 'consolidation', 'divergence'
+    ];
+
+    const keywordMatches = insightKeywords.filter(keyword => reasoning.includes(keyword)).length;
+    
+    return keywordMatches >= 2 && reasoning.length > 60;
+  }
+
+  private checkGrammarCoherence(text: string): number {
+    if (!text || text.length < 20) return 0;
+    
+    let score = 5;
+    
+    if (text.includes('.') || text.includes('!') || text.includes('?')) score += 2;
+    
+    const wordCount = text.split(' ').length;
+    if (wordCount >= 15) score += 2;
+    
+    if (!/^\s/.test(text) && !/\s$/.test(text.trim())) score += 1;
+    
+    return score;
   }
 }
 

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Zap, Plus } from 'lucide-react';
-import Button from '@/components/button';
 import { analyticsService } from '@/services/analytics';
 import { signalsService } from '@/services/signals';
 import type { Signal } from '@/types/signals';
@@ -50,22 +49,9 @@ export default function Overview() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
       >
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-neutral-900 mb-2">Dashboard Overview</h1>
-            <p className="text-neutral-600">Track your trading signals and earnings</p>
-          </div>
-          
-          <Link to="/dashboard/signals">
-            <Button variant="primary" className="flex items-center">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Signal
-            </Button>
-          </Link>
-        </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -156,7 +142,7 @@ export default function Overview() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4 }}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+          className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6"
         >
           {/* Recent Signals */}
           <div className="bg-white rounded-lg border border-neutral-200 p-6">
@@ -217,8 +203,8 @@ export default function Overview() {
                   <Plus className="w-4 h-4 text-green-600" />
                 </div>
                 <div>
-                  <p className="font-medium text-neutral-900">Create New Signal</p>
-                  <p className="text-sm text-neutral-500">Generate AI trading signals</p>
+                  <p className="font-medium text-neutral-900">Improve AI Signals</p>
+                  <p className="text-sm text-neutral-500">Improve AI trading signals for IP</p>
                 </div>
               </Link>
               

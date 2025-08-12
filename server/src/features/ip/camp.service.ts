@@ -7,7 +7,6 @@ import { env } from '@/shared/config/env';
 import { CustomError } from '@/shared/middleware/error.middleware';
 import { IPAsset } from './ip.model';
 
-// Camp Network BaseCAMP chain config
 const baseCampChain = {
   id: 123420001114,
   name: 'BaseCAMP',
@@ -94,7 +93,6 @@ export class CampService {
         transport: http()
       });
 
-      // Set the viem client in Origin SDK
       if (this.auth.origin) {
         this.auth.origin.setViemClient(this.walletClient);
       }
@@ -110,13 +108,9 @@ export class CampService {
 
   async authenticateUser(walletAddress: string, signature: string): Promise<string> {
     try {
-      // Set wallet address manually if needed
       this.auth.setWalletAddress(walletAddress);
-      
-      // Connect to authenticate
       await this.auth.connect();
       
-      // Get JWT token
       const jwt = this.auth.getJwt();
       if (!jwt) {
         throw new Error('Failed to get JWT token');
@@ -141,15 +135,13 @@ export class CampService {
       
       const metadata = this.generateIPMetadata(signalData, improvementData);
       
-      // License terms based on signal type
       const licenseTerms: LicenseTerms = {
-        price: BigInt(1020000), // $1.02 USDC (includes 2% platform fee for minting costs)
-        duration: BigInt(86400), // 24 hours
-        royaltyBps: improvementData ? 6000 : 10000, // 60% to improver (40% to base) OR 100% to platform for base signals
-        paymentToken: '0x0000000000000000000000000000000000000000' // Native token
+        price: BigInt(1020000),
+        duration: BigInt(86400),
+        royaltyBps: improvementData ? 6000 : 10000,
+        paymentToken: '0x0000000000000000000000000000000000000000'
       };
 
-      // Create file content for the signal
       const signalContent = JSON.stringify({
         ...metadata,
         timestamp: new Date().toISOString(),
@@ -164,7 +156,6 @@ export class CampService {
         throw new Error('Origin SDK not initialized');
       }
 
-      // Mint IP NFT
       const mintResult = await this.auth.origin.mintFile(
         file,
         metadata as unknown as Record<string, unknown>,
@@ -172,16 +163,13 @@ export class CampService {
         improvementData ? BigInt(signalData._id || '0') : undefined
       );
 
-      // Extract token ID and transaction hash from mint result
       const tokenId = typeof mintResult === 'string' ? mintResult : mintResult.tokenId;
       const transactionHash = typeof mintResult === 'object' && mintResult.transactionHash 
         ? mintResult.transactionHash 
         : `0x${Math.random().toString(16).padStart(64, '0')}`;
       
-      // Generate IP hash from content
       const ipHash = this.generateContentHash(signalContent);
 
-      // Store in our database
       const ipAsset = new IPAsset({
         assetId: tokenId,
         creator: creatorWalletAddress,
@@ -211,7 +199,8 @@ export class CampService {
         tokenId,
         creator: creatorWalletAddress,
         signalId: signalData._id,
-        type: metadata.type
+        type: metadata.type,
+        isPlatform: signalData.creator === 'platform'
       });
 
       return {
@@ -240,10 +229,8 @@ export class CampService {
         throw new Error('Origin SDK not initialized');
       }
 
-      // Buy access using the smart contract method
       const result = await this.auth.origin.buyAccessSmart(BigInt(tokenId), periods);
       
-      // Update our database
       const ipAsset = await IPAsset.findOne({ originAssetId: tokenId });
       if (ipAsset) {
         ipAsset.totalSales += 1;
@@ -251,7 +238,6 @@ export class CampService {
         await ipAsset.save();
       }
 
-      // Calculate expiry date (24 hours per period)
       const expiryDate = new Date(Date.now() + (periods * 24 * 60 * 60 * 1000));
 
       logger.info('Access purchased successfully', {
@@ -331,6 +317,7 @@ export class CampService {
 
   generateIPMetadata(signalData: any, improvementData?: any): CampIPMetadata {
     const isImprovement = !!improvementData;
+    const creator = signalData.creator === 'platform' ? 'platform' : signalData.creator;
     
     return {
       name: isImprovement 
@@ -351,13 +338,12 @@ export class CampService {
           ? `${signalData.analysis.technicalAnalysis} [IMPROVED: ${improvementData.reasoning}]`
           : signalData.analysis.technicalAnalysis,
       },
-      creator: signalData.creator,
+      creator: creator,
       originalSignalId: isImprovement ? signalData._id : undefined,
     };
   }
 
   private generateContentHash(content: string): string {
-    // Generate SHA-256 hash of content for IP integrity verification
     const hash = createHash('sha256').update(content, 'utf8').digest('hex');
     return `0x${hash}`;
   }

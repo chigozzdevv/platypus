@@ -8,11 +8,6 @@ import { walletAddressSchema } from '@/shared/utils/validators';
 
 const router = Router();
 
-// Validation schemas
-const generateNonceSchema = z.object({
-  walletAddress: walletAddressSchema,
-});
-
 const updateProfileSchema = z.object({
   username: z.string().min(3).max(50).optional(),
   bio: z.string().max(500).optional(),
@@ -32,12 +27,6 @@ const exchangeParamsSchema = z.object({
   exchange: z.literal('hyperliquid'),
 });
 
-// Public routes (no auth required)
-router.post(
-  '/generate-nonce',
-  validateBody(generateNonceSchema),
-  authController.generateNonce
-);
 
 router.post(
   '/connect',

@@ -3,23 +3,10 @@ import { authService } from './auth.service';
 import { sendSuccess, sendError } from '@/shared/utils/responses';
 import { SUCCESS_MESSAGES } from '@/shared/config/constants';
 import { logger } from '@/shared/utils/logger';
-import { generateAuthMessage } from '@/shared/utils/validators';
 import { AuthenticatedRequest } from '@/shared/types/api.types';
 import { asyncHandler } from '@/shared/middleware/error.middleware';
 
 export class AuthController {
-  generateNonce = asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { walletAddress } = req.body;
-    
-    const nonce = await authService.generateNonce(walletAddress);
-    const message = generateAuthMessage(walletAddress, nonce);
-    
-    sendSuccess(res, { 
-      nonce, 
-      message,
-      walletAddress: walletAddress.toLowerCase() 
-    });
-  });
 
   connect = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { walletAddress, signature, message, originJWT } = req.body;
