@@ -1,30 +1,14 @@
 import jwt from 'jsonwebtoken';
 import { env } from '@/shared/config/env';
 import { logger } from '@/shared/utils/logger';
-import { generateNonce, encrypt, decrypt } from '@/shared/utils/encryption';
+import { encrypt, decrypt } from '@/shared/utils/encryption';
 import { User } from './auth.model';
 import { UserDocument } from '@/shared/types/database.types';
 import { JWTPayload } from '@/shared/middleware/auth.types';
 import { CustomError } from '@/shared/middleware/error.middleware';
 import { Types } from 'mongoose';
 
-
 export class AuthService {
-  private nonces = new Map<string, { nonce: string; timestamp: number }>();
-
-  async generateNonce(walletAddress: string): Promise<string> {
-    const nonce = generateNonce();
-    const timestamp = Date.now();
-    
-    this.nonces.set(walletAddress.toLowerCase(), { nonce, timestamp });
-    
-    setTimeout(() => {
-      this.nonces.delete(walletAddress.toLowerCase());
-    }, 5 * 60 * 1000);
-    
-    return nonce;
-  }
-
   async verifyAndConnect(
     walletAddress: string,
     signature: string,
@@ -83,7 +67,6 @@ export class AuthService {
       throw error;
     }
 
-    // Validate username uniqueness if being updated
     if (updates.username && updates.username !== user.username) {
       const existingUser = await User.findOne({ username: updates.username });
       if (existingUser) {
@@ -101,7 +84,6 @@ export class AuthService {
     return user;
   }
 
-
   async connectExchange(
     userId: string,
     exchange: 'hyperliquid',
@@ -115,7 +97,6 @@ export class AuthService {
       throw error;
     }
 
-    // Validate privateKey format
     if (!credentials.privateKey.match(/^0x[0-9a-fA-F]{64}$/)) {
       const error = new Error('Invalid private key format') as CustomError;
       error.statusCode = 400;
@@ -123,7 +104,6 @@ export class AuthService {
       throw error;
     }
 
-    // Validate walletAddress format  
     if (!credentials.walletAddress.match(/^0x[0-9a-fA-F]{40}$/)) {
       const error = new Error('Invalid wallet address format') as CustomError;
       error.statusCode = 400;
@@ -131,17 +111,12 @@ export class AuthService {
       throw error;
     }
 
-    // TODO: Test connection to Hyperliquid before saving
-    // const client = createHyperliquidClient(credentials.privateKey);
-    // await client.info.perpetuals.getClearinghouseState(credentials.walletAddress);
-
-    // Encrypt sensitive credentials
     const encryptedPrivateKey = encrypt(credentials.privateKey);
 
     if (exchange === 'hyperliquid') {
       user.connectedExchanges.hyperliquid = {
         connected: true,
-        apiKey: JSON.stringify(encryptedPrivateKey), // Store as apiKey for now
+        apiKey: JSON.stringify(encryptedPrivateKey),
         walletAddress: credentials.walletAddress,
       };
     }
@@ -199,7 +174,6 @@ export class AuthService {
 
   async disconnect(userId: string): Promise<void> {
     logger.info('User disconnected', { userId });
-    // Add any cleanup logic here (e.g., invalidate refresh tokens)
   }
 }
 
