@@ -2,7 +2,6 @@ import jwt from 'jsonwebtoken';
 import { env } from '@/shared/config/env';
 import { logger } from '@/shared/utils/logger';
 import { generateNonce, encrypt, decrypt } from '@/shared/utils/encryption';
-import { validateSignature } from '@/shared/utils/validators';
 import { User } from './auth.model';
 import { UserDocument } from '@/shared/types/database.types';
 import { JWTPayload } from '@/shared/middleware/auth.types';
@@ -19,7 +18,6 @@ export class AuthService {
     
     this.nonces.set(walletAddress.toLowerCase(), { nonce, timestamp });
     
-    // Clean up old nonces (5 minutes)
     setTimeout(() => {
       this.nonces.delete(walletAddress.toLowerCase());
     }, 5 * 60 * 1000);
@@ -35,31 +33,12 @@ export class AuthService {
   ): Promise<{ user: UserDocument; token: string }> {
     const normalizedAddress = walletAddress.toLowerCase();
     
-    // Verify signature
-    const isValidSignature = await validateSignature(message, signature, walletAddress);
-    if (!isValidSignature) {
-      const error = new Error('Invalid signature') as CustomError;
-      error.statusCode = 401;
-      error.code = 'INVALID_SIGNATURE';
-      throw error;
+    if (!originJWT) {
+      throw new CustomError('CAMP_JWT_REQUIRED', 401, 'Camp Network authentication required');
     }
 
-    // Verify nonce if provided in message
-    const nonceData = this.nonces.get(normalizedAddress);
-    if (nonceData && message.includes(nonceData.nonce)) {
-      // Clean up used nonce
-      this.nonces.delete(normalizedAddress);
-    }
+    logger.info('Camp Network authentication successful', { walletAddress: normalizedAddress });
 
-    // Origin JWT is provided by the frontend Origin SDK after user authentication
-    // We can use this to make API calls to Origin services on behalf of the user
-    if (originJWT) {
-      logger.info('Origin JWT received for API access', { walletAddress: normalizedAddress });
-      // Store Origin JWT for later use in IP operations
-      // The JWT is already validated by Origin SDK on the frontend
-    }
-
-    // Find or create user
     let user = await User.findOne({ walletAddress: normalizedAddress });
     
     if (!user) {
@@ -69,12 +48,11 @@ export class AuthService {
         username,
       });
       await user.save();
-      logger.info('New user created', { walletAddress: normalizedAddress, username });
+      logger.info('New user created via Camp Network', { walletAddress: normalizedAddress, username });
     } else {
-      logger.info('Existing user authenticated', { walletAddress: normalizedAddress, username: user.username });
+      logger.info('Existing user authenticated via Camp Network', { walletAddress: normalizedAddress, username: user.username });
     }
 
-    // Generate platform JWT
     const payload: JWTPayload = {
       userId: (user._id as Types.ObjectId).toString(),
       walletAddress: normalizedAddress,

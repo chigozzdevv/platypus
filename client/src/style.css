@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    @apply text-neutral-900 scroll-smooth;
+  }
+  
+  body {
+    @apply bg-white relative font-sans;
+  }
+}

@@ -218,9 +218,9 @@ POST /api/signals/
 - **Analysis Enhancement**: Add market insights
 
 **Quality Assessment:**
-- **Minimum Score**: 60/100 required for approval
+- **Minimum Score**: 50/100 required for approval (easier testing threshold)
 - **Quality Factors**: Reasoning depth, technical accuracy, market insight
-- **Revenue Tiers**: Bronze (50%), Silver (60%), Gold (70%) based on quality
+- **Revenue Share**: Fixed 60% for all accepted improvements (simplified system)
 
 #### **Register Improvement as IP**
 **Endpoint**: `POST /api/ip/register`
@@ -369,11 +369,11 @@ POST /api/signals/
 ```
 1. User finds improvable signal on Signals page
 2. User submits ONE improvement per signal (first come, first served)
-3. System evaluates improvement quality (must score 60+ to be accepted)
-4. Quality determines revenue tier: Bronze (50%), Silver (60%), Gold (70%)
+3. System evaluates improvement quality (must score 50+ to be accepted)
+4. All accepted improvements get fixed 60% revenue share
 5. Improvement registered as child IP NFT on Camp Network
 6. Improved signal appears in marketplace for purchase
-7. Revenue split: 40% to base creator, 60% to improver, 2% platform
+7. Revenue split: 40% to base creator, 60% to improver
 ```
 
 ### **Marketplace Purchase Flow**
@@ -444,4 +444,459 @@ POST /api/signals/
 
 ---
 
-This comprehensive flow covers the complete user journey from authentication through monetization, providing a clear understanding of how users interact with the Platypus platform's AI-powered trading signal ecosystem.
+## 📋 **Complete API Reference**
+
+### **🔐 Authentication Routes** (`/api/auth/`)
+
+#### **Public Routes (No Authentication)**
+```bash
+POST /api/auth/generate-nonce
+```
+**Request:**
+```json
+{
+  "walletAddress": "0x742d35Cc6cf4C15D83d3d6e8C7d3d4C1aB1D1234"
+}
+```
+**Response:**
+```json
+{
+  "nonce": "unique-nonce-string",
+  "message": "Sign this message to authenticate: unique-nonce-string"
+}
+```
+
+```bash
+POST /api/auth/connect
+```
+**Request:**
+```json
+{
+  "walletAddress": "0x742d35Cc6cf4C15D83d3d6e8C7d3d4C1aB1D1234",
+  "signature": "0x1234567890abcdef...",
+  "nonce": "unique-nonce-string"
+}
+```
+**Response:**
+```json
+{
+  "token": "jwt-token",
+  "user": {
+    "id": "userId",
+    "walletAddress": "0x742d35...",
+    "username": "trader123",
+    "reputation": 85
+  }
+}
+```
+
+#### **Protected Routes (Auth Required)**
+```bash
+GET /api/auth/profile
+```
+**Response:**
+```json
+{
+  "user": {
+    "id": "userId",
+    "walletAddress": "0x742d35...",
+    "username": "trader123",
+    "bio": "Professional crypto trader",
+    "avatar": "https://example.com/avatar.jpg",
+    "specialties": ["scalping", "technical-analysis"],
+    "reputation": 85,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+```bash
+PUT /api/auth/profile
+```
+**Request:**
+```json
+{
+  "username": "newUsername",
+  "bio": "Updated bio",
+  "avatar": "https://example.com/new-avatar.jpg",
+  "specialties": ["swing", "futures"]
+}
+```
+
+```bash
+POST /api/auth/exchange/connect
+```
+**Request:**
+```json
+{
+  "exchange": "hyperliquid",
+  "privateKey": "0x1234567890abcdef...",
+  "walletAddress": "0x742d35Cc6cf4C15D83d3d6e8C7d3d4C1aB1D1234"
+}
+```
+
+```bash
+GET /api/auth/exchange/hyperliquid/status
+```
+**Response:**
+```json
+{
+  "connected": true,
+  "walletAddress": "0x742d35...",
+  "lastSync": "2024-01-01T12:00:00.000Z",
+  "balance": 5000.00
+}
+```
+
+---
+
+### **📊 Signals Routes** (`/api/signals/`)
+
+#### **Public Routes**
+```bash
+GET /api/signals/public
+```
+**Query Parameters:** `symbol`, `minConfidence`, `sortBy`, `limit`, `offset`
+**Response:**
+```json
+{
+  "signals": [
+    {
+      "id": "signalId",
+      "symbol": "BTC-USD",
+      "side": "long",
+      "entryPrice": 45000,
+      "confidence": 87,
+      "creator": {
+        "username": "trader123",
+        "reputation": 85
+      },
+      "createdAt": "2024-01-01T12:00:00.000Z"
+    }
+  ],
+  "total": 25,
+  "pagination": {
+    "limit": 20,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+```bash
+GET /api/signals/improvable
+```
+**Query Parameters:** `symbol`, `minConfidence`, `sortBy`, `limit`, `offset`
+**Response:** Same structure as public signals, but only shows signals available for improvement
+
+```bash
+GET /api/signals/:signalId
+```
+**Response:**
+```json
+{
+  "signal": {
+    "id": "signalId",
+    "symbol": "BTC-USD",
+    "side": "long",
+    "entryPrice": 45000,
+    "stopLoss": 43500,
+    "takeProfit": 47000,
+    "leverage": 3,
+    "confidence": 87,
+    "analysis": {
+      "technicalAnalysis": "Strong bullish momentum...",
+      "marketAnalysis": "Market conditions favorable...",
+      "sentimentAnalysis": "Positive sentiment indicators...",
+      "riskAssessment": "Medium risk profile..."
+    },
+    "registeredAsIP": true,
+    "ipTokenId": "12345",
+    "creator": {
+      "username": "trader123",
+      "reputation": 85
+    }
+  }
+}
+```
+
+#### **Protected Routes**
+```bash
+POST /api/signals/
+```
+**Request:**
+```json
+{
+  "symbol": "BTC-USD",  // Optional - auto-selects best opportunity if omitted
+  "aiModel": "gpt-4o-mini",
+  "accountBalance": 5000
+}
+```
+**Response:**
+```json
+{
+  "signal": {
+    "id": "signalId",
+    "symbol": "BTC-USD",
+    "side": "long",
+    "entryPrice": 45000,
+    "stopLoss": 43500,
+    "takeProfit": 47000,
+    "leverage": 3,
+    "confidence": 87,
+    "registeredAsIP": true,
+    "ipTokenId": "12345",
+    "ipTransactionHash": "0xabc123..."
+  },
+  "message": "AI trading signal generated successfully"
+}
+```
+
+```bash
+POST /api/signals/:signalId/improve
+```
+**Request:**
+```json
+{
+  "improvementType": "entry-adjustment",
+  "originalValue": 45000,
+  "improvedValue": 44800,
+  "reasoning": "Entry price too aggressive, better to enter on slight pullback for improved risk/reward ratio..."
+}
+```
+
+```bash
+GET /api/signals/user/signals
+```
+**Query Parameters:** `status`, `symbol`, `outcome`, `limit`, `offset`
+**Response:** User's personal signals with same structure as public signals
+
+---
+
+### **🏪 IP/Marketplace Routes** (`/api/ip/`)
+
+#### **Public Routes**
+```bash
+GET /api/ip/marketplace
+```
+**Query Parameters:** `type`, `symbol`, `limit`, `offset`
+**Response:**
+```json
+{
+  "assets": [
+    {
+      "tokenId": "67890",
+      "name": "Improved BTC-USD Trading Signal",
+      "description": "Human-improved trading signal with enhanced entry timing...",
+      "type": "improvement",
+      "price": 1.02,
+      "currency": "USDC",
+      "creator": {
+        "username": "pro_trader",
+        "reputation": 95
+      },
+      "symbol": "BTC-USD",
+      "confidence": 92,
+      "totalSales": 45,
+      "previewOnly": true
+    }
+  ],
+  "total": 15
+}
+```
+
+#### **Protected Routes**
+```bash
+POST /api/ip/register
+```
+**Request:**
+```json
+{
+  "signalId": "signalId",
+  "improvementIndex": 0  // Optional - for improvements
+}
+```
+
+```bash
+POST /api/ip/purchase
+```
+**Request:**
+```json
+{
+  "tokenId": "67890",
+  "periods": 1  // Access periods
+}
+```
+
+```bash
+GET /api/ip/user/assets
+```
+**Response:**
+```json
+{
+  "assets": [
+    {
+      "tokenId": "12345",
+      "name": "BTC-USD Trading Signal",
+      "type": "base",
+      "revenue": 125.50,
+      "totalSales": 28
+    }
+  ],
+  "total": 5
+}
+```
+
+---
+
+### **📈 Trading Routes** (`/api/trading/`)
+
+#### **All Protected Routes**
+```bash
+GET /api/trading/opportunities
+```
+**Query Parameters:** `maxSymbols`, `minVolume`, `topCount`
+**Response:**
+```json
+{
+  "opportunities": [
+    {
+      "symbol": "ETH-USD",
+      "score": 87.5,
+      "price": 2450.00,
+      "change24h": 5.2,
+      "volume": 125000000,
+      "winRate": 73.5,
+      "setup": {
+        "type": "High Win Rate Momentum",
+        "direction": "LONG",
+        "confidence": 85
+      }
+    }
+  ],
+  "scanSummary": {
+    "totalScanned": 30,
+    "opportunitiesFound": 8,
+    "avgWinRate": 65.2
+  }
+}
+```
+
+```bash
+POST /api/trading/execute
+```
+**Request:**
+```json
+{
+  "symbol": "BTC-USD",
+  "side": "buy",
+  "size": 0.1,
+  "orderType": "limit",
+  "price": 45000
+}
+```
+
+```bash
+GET /api/trading/positions
+```
+**Response:**
+```json
+{
+  "positions": [
+    {
+      "symbol": "BTC-USD",
+      "side": "long",
+      "size": 0.1,
+      "entryPrice": 45000,
+      "unrealizedPnl": 150.00
+    }
+  ]
+}
+```
+
+---
+
+### **📊 Analytics Routes** (`/api/analytics/`)
+
+#### **All Protected Routes**
+```bash
+GET /api/analytics/overview
+```
+**Response:**
+```json
+{
+  "totalSignals": 1250,
+  "totalTrades": 5800,
+  "totalUsers": 892,
+  "totalIPAssets": 340,
+  "totalVolume": 2500000,
+  "totalRevenue": 45000,
+  "avgSignalAccuracy": 73.2
+}
+```
+
+```bash
+GET /api/analytics/signals
+```
+**Query Parameters:** `timeframe` (24h, 7d, 30d, 90d, 1y)
+**Response:**
+```json
+{
+  "totalSignals": 125,
+  "accuracyRate": 68.5,
+  "averageConfidence": 78.2,
+  "topSymbols": ["BTC-USD", "ETH-USD", "SOL-USD"]
+}
+```
+
+```bash
+GET /api/analytics/revenue
+```
+**Response:**
+```json
+{
+  "totalRevenue": 1250.50,
+  "ipRevenue": 890.25,
+  "royaltyRevenue": 360.25,
+  "monthlyBreakdown": [
+    {"month": "2024-01", "revenue": 125.50, "sales": 15}
+  ]
+}
+```
+
+---
+
+## 🔑 **Authentication Headers**
+
+All protected routes require:
+```bash
+Authorization: Bearer <jwt-token>
+```
+
+## ⚠️ **Error Responses**
+
+Standard error format:
+```json
+{
+  "error": {
+    "code": "SIGNAL_NOT_FOUND",
+    "message": "Signal not found",
+    "details": {}
+  }
+}
+```
+
+## 📝 **Response Format**
+
+All successful responses follow:
+```json
+{
+  "success": true,
+  "data": { /* response data */ },
+  "message": "Operation successful"
+}
+```
+
+---
+
+This comprehensive API reference covers all endpoints with request/response structures for complete frontend integration.

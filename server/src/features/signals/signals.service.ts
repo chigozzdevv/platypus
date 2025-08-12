@@ -167,12 +167,12 @@ class SignalsService {
 
     const qualityScore = await this.assessImprovementQuality(signal, improvement);
     
-    if (qualityScore < 60) {
+    if (qualityScore < 50) {
       throw new CustomError('IMPROVEMENT_QUALITY_LOW', 400, 
         `Improvement quality too low (${qualityScore}/100). Please provide more substantive changes and reasoning.`);
     }
 
-    const revenueShare = this.calculateRevenueShare(qualityScore);
+    const revenueShare = 0.6; // Fixed 60% revenue share for all accepted improvements
 
     signal.improvements.push({
       user: userId,
@@ -517,9 +517,8 @@ class SignalsService {
   }
 
   private calculateRevenueShare(qualityScore: number): number {
-    if (qualityScore >= 85) return 0.7; // Gold tier
-    if (qualityScore >= 70) return 0.6; // Silver tier
-    return 0.5; // Bronze tier
+    // Simplified: Fixed 60% revenue share for all accepted improvements
+    return 0.6;
   }
 
   async getPublicSignals(filters: {

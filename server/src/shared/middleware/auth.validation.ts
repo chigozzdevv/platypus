@@ -3,8 +3,9 @@ import { walletAddressSchema } from '@/shared/utils/validators';
 
 export const connectWalletSchema = z.object({
   walletAddress: walletAddressSchema,
-  signature: z.string().min(1),
-  message: z.string().min(1),
+  signature: z.string().optional(),
+  message: z.string().optional(),
+  originJWT: z.string().min(1, 'Camp Network JWT required'),
 });
 
 export const authHeaderSchema = z.object({
