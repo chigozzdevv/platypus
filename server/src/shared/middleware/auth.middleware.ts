@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '@/shared/config/env';
-import { sendUnauthorized, sendForbidden, sendError } from '@/shared/utils/responses';
+import { sendUnauthorized } from '@/shared/utils/responses';
 import { AuthenticatedRequest } from '@/shared/types/api.types';
 import { JWTPayload, AuthUser } from './auth.types';
 
@@ -19,13 +19,12 @@ export const authMiddleware = async (
     }
 
     const token = authHeader.substring(7);
-    
     const decoded = jwt.verify(token, env.JWT_SECRET) as JWTPayload;
-    
-    // Create user object from JWT payload
+
     const user: AuthUser = {
       id: decoded.userId,
       walletAddress: decoded.walletAddress,
+      userType: decoded.userType || 'user',
     };
 
     (req as AuthenticatedRequest).user = user;
@@ -50,6 +49,7 @@ export const optionalAuthMiddleware = async (
       const user: AuthUser = {
         id: decoded.userId,
         walletAddress: decoded.walletAddress,
+        userType: decoded.userType || 'user',
       };
 
       (req as AuthenticatedRequest).user = user;
@@ -59,4 +59,20 @@ export const optionalAuthMiddleware = async (
   } catch (error) {
     next();
   }
+};
+
+export const adminMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const authReq = req as AuthenticatedRequest;
+  
+  if (authReq.user.userType !== 'admin') {
+    res.status(403).json({
+      error: {
+        code: 'ADMIN_REQUIRED',
+        message: 'Admin access required'
+      }
+    });
+    return;
+  }
+  
+  next();
 };

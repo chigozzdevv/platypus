@@ -4,7 +4,8 @@ import {
   Store, 
   Radio, 
   DollarSign, 
-  TrendingUp
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -21,6 +22,7 @@ export default function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }: Na
     { path: '/dashboard', label: 'Overview', icon: Home },
     { path: '/dashboard/marketplace', label: 'Marketplace', icon: Store },
     { path: '/dashboard/signals', label: 'Signals', icon: Radio },
+    { path: '/dashboard/trades', label: 'Trades', icon: BarChart3 },
     { path: '/dashboard/royalties', label: 'Royalties', icon: DollarSign },
     { path: '/dashboard/my-signals', label: 'My Signals', icon: TrendingUp },
   ];

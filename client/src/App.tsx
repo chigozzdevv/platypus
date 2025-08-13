@@ -10,6 +10,7 @@ import DashboardLayout from './components/dashboard-layout';
 import Overview from './pages/dashboard/overview';
 import Marketplace from './pages/dashboard/marketplace';
 import Signals from './pages/dashboard/signals';
+import Trades from './pages/dashboard/trades';
 import Royalties from './pages/dashboard/royalties';
 import MySignals from './pages/dashboard/my-signals';
 import Profile from './pages/dashboard/profile';
@@ -48,6 +49,7 @@ function App() {
                       <Route path="/overview" element={<Overview />} />
                       <Route path="/marketplace" element={<Marketplace />} />
                       <Route path="/signals" element={<Signals />} />
+                      <Route path="/trades" element={<Trades />} />
                       <Route path="/royalties" element={<Royalties />} />
                       <Route path="/my-signals" element={<MySignals />} />
                       <Route path="/profile" element={<Profile />} />

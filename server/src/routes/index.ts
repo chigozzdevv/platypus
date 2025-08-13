@@ -1,8 +1,7 @@
-
 import { Router } from 'express';
 import authRoutes from '../features/auth/auth.routes';
 import signalRoutes from '../features/signals/signals.routes';
-import ipRoutes from '../features/ip/ip.routes';
+import ipRoutes from '../features/ip-redacted-2-client/ip.routes';
 import tradingRoutes from '../features/trading/trading.routes';
 import analyticsRoutes from '../features/analytics/analytics.routes';
 import { API_ROUTES } from '@/shared/config/constants';

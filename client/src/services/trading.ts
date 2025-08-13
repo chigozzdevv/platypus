@@ -1,5 +1,6 @@
 import api from './api';
-import type { OpportunitiesResponse, ExecuteTradeRequest, Position } from '@/types/trading';
+import type { Signal } from '@/types/signals';
+import type { Position, ExecuteTradeRequest, OpportunitiesResponse, PositionCalculation, AccountInfo } from '@/types/trading';
 
 export const tradingService = {
   async getOpportunities(params?: {
@@ -18,11 +19,58 @@ export const tradingService = {
     return api.get(`/trading/opportunities?${searchParams.toString()}`);
   },
 
-  async executeTrade(data: ExecuteTradeRequest): Promise<void> {
+  async executeTrade(data: ExecuteTradeRequest): Promise<{ 
+    success: boolean; 
+    orderId?: string; 
+    message: string;
+    position?: Position;
+  }> {
     return api.post('/trading/execute', data);
   },
 
-  async getPositions(): Promise<{ positions: Position[] }> {
+  async calculatePositionSize(params: {
+    entryPrice: number;
+    stopLoss: number;
+    leverage: number;
+    symbol: string;
+    riskPercentage?: number;
+    winRate?: number;
+  }): Promise<PositionCalculation> {
+    return api.post('/trading/calculate-position', params);
+  },
+
+  // Execute trade directly from signal
+  async executeSignalTrade(signal: Signal, params: {
+    riskPercentage: number;
+    maxLeverage: number;
+  }): Promise<{ success: boolean; orderId?: string; message: string }> {
+    return api.post('/trading/execute-signal', {
+      signal,
+      riskPercentage: params.riskPercentage,
+      maxLeverage: params.maxLeverage,
+    });
+  },
+
+  async getPositions(): Promise<Position[]> {
     return api.get('/trading/positions');
+  },
+
+  async getAccountInfo(): Promise<AccountInfo> {
+    return api.get('/trading/account');
+  },
+
+  // Close specific position
+  async closePosition(symbol: string, percentage: number = 100): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return api.post(`/trading/positions/${symbol}/close`, { percentage });
+  },
+
+  async setStopLossTakeProfit(symbol: string, params: {
+    stopLoss?: number;
+    takeProfit?: number;
+  }): Promise<{ success: boolean; message: string }> {
+    return api.post(`/trading/positions/${symbol}/sl-tp`, params);
   },
 };

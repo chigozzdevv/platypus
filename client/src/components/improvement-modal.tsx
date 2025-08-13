@@ -1,239 +1,307 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, TrendingUp } from 'lucide-react';
-import type { Signal } from '@/types/signals';
+import { X, Check, AlertCircle, Zap } from 'lucide-react';
 import { signalsService } from '@/services/signals';
-import Button from './button';
+import type { Signal, ImproveSignalRequest } from '@/types/signals';
 
 interface ImprovementModalProps {
+  signal: Signal;
   isOpen: boolean;
   onClose: () => void;
-  signal: Signal;
-  onSuccess?: () => void;
+  onSuccess: () => void;
 }
 
-export default function ImprovementModal({ isOpen, onClose, signal, onSuccess }: ImprovementModalProps) {
-  const [improvementType, setImprovementType] = useState<'entry-adjustment' | 'stop-loss-adjustment' | 'take-profit-adjustment' | 'analysis-enhancement'>('entry-adjustment');
-  const [originalValue, setOriginalValue] = useState<number>(signal.entryPrice);
-  const [improvedValue, setImprovedValue] = useState<number>(signal.entryPrice);
-  const [reasoning, setReasoning] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }: ImprovementModalProps) {
+  const [improvementData, setImprovementData] = useState<ImproveSignalRequest>({
+    improvementType: 'entry-adjustment',
+    originalValue: signal.entryPrice,
+    improvedValue: signal.entryPrice,
+    reasoning: ''
+  });
+  const [qualityScore, setQualityScore] = useState<number | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [minting, setMinting] = useState(false);
+  const [canMint, setCanMint] = useState(false);
 
-  const handleTypeChange = (type: typeof improvementType) => {
-    setImprovementType(type);
-    switch (type) {
-      case 'entry-adjustment':
-        setOriginalValue(signal.entryPrice);
-        setImprovedValue(signal.entryPrice);
-        break;
-      case 'stop-loss-adjustment':
-        setOriginalValue(signal.stopLoss || 0);
-        setImprovedValue(signal.stopLoss || 0);
-        break;
-      case 'take-profit-adjustment':
-        setOriginalValue(signal.takeProfit || 0);
-        setImprovedValue(signal.takeProfit || 0);
-        break;
-      case 'analysis-enhancement':
-        setOriginalValue(0);
-        setImprovedValue(0);
-        break;
+  const handleImprovementChange = (field: keyof ImproveSignalRequest, value: any) => {
+    setImprovementData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    // Reset quality score when data changes
+    setQualityScore(null);
+    setCanMint(false);
+  };
+
+  const checkImprovementQuality = async () => {
+    setChecking(true);
+    try {
+      // Submit improvement first to get quality score
+      await signalsService.improveSignal(signal.id, improvementData);
+      
+      // Simulate quality assessment (in real implementation, this would come from the server)
+      const score = calculateQualityScore(improvementData);
+      setQualityScore(score);
+      setCanMint(score >= 50);
+      
+      if (score >= 50) {
+        onSuccess(); // Refresh parent data
+      }
+    } catch (error: any) {
+      console.error('Failed to submit improvement:', error);
+      if (error.message.includes('quality too low')) {
+        const scoreMatch = error.message.match(/\((\d+)\/100\)/);
+        if (scoreMatch) {
+          setQualityScore(parseInt(scoreMatch[1]));
+          setCanMint(false);
+        }
+      }
+    } finally {
+      setChecking(false);
     }
   };
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
+  const handleMintImprovement = async () => {
+    setMinting(true);
     try {
-      await signalsService.improveSignal(signal.id, {
-        improvementType,
-        originalValue,
-        improvedValue,
-        reasoning,
-      });
+      // Find the improvement index (it should be the last one added)
+      const updatedSignal = await signalsService.getSignal(signal.id);
+      const improvementIndex = (updatedSignal.signal.improvements?.length || 1) - 1;
       
-      onSuccess?.();
+      await signalsService.mintImprovement(signal.id, improvementIndex);
+      onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to submit improvement:', error);
+      console.error('Failed to mint improvement:', error);
     } finally {
-      setSubmitting(false);
+      setMinting(false);
     }
   };
 
-  const getImprovementDescription = () => {
-    switch (improvementType) {
-      case 'entry-adjustment':
-        return 'Optimize the entry price for better risk/reward ratio';
-      case 'stop-loss-adjustment':
-        return 'Improve risk management with better stop-loss placement';
-      case 'take-profit-adjustment':
-        return 'Enhance profit targets based on technical levels';
-      case 'analysis-enhancement':
-        return 'Add additional market insights and analysis';
+  const calculateQualityScore = (improvement: ImproveSignalRequest): number => {
+    let score = 0;
+    
+    // Reasoning quality (40 points)
+    if (improvement.reasoning.length >= 50) score += 20;
+    if (improvement.reasoning.length >= 100) score += 10;
+    if (improvement.reasoning.length >= 150) score += 10;
+    
+    // Value change significance (30 points)
+    const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
+    if (changePercent > 0.01) score += 15; // > 1% change
+    if (changePercent > 0.02) score += 15; // > 2% change
+    
+    // Technical keywords (20 points)
+    const technicalTerms = ['support', 'resistance', 'volume', 'momentum', 'rsi', 'macd', 'fibonacci'];
+    const termsUsed = technicalTerms.filter(term => 
+      improvement.reasoning.toLowerCase().includes(term)
+    ).length;
+    score += Math.min(20, termsUsed * 3);
+    
+    // Grammar and structure (10 points)
+    if (improvement.reasoning.includes('.')) score += 5;
+    if (improvement.reasoning.split(' ').length >= 15) score += 5;
+    
+    return Math.min(100, score);
+  };
+
+  const getOriginalValue = () => {
+    switch (improvementData.improvementType) {
+      case 'entry-adjustment': return signal.entryPrice;
+      case 'stop-loss-adjustment': return signal.stopLoss;
+      case 'take-profit-adjustment': return signal.takeProfit;
+      case 'analysis-enhancement': return signal.analysis.technicalAnalysis;
+      default: return 0;
     }
   };
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={onClose}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black bg-opacity-50"
+            onClick={onClose}
+          />
+          
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ duration: 0.2 }}
-            className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6"
-            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden"
           >
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-neutral-900">Improve Signal</h2>
+            <div className="flex items-center justify-between p-6 border-b border-neutral-200">
+              <div>
+                <h2 className="text-xl font-bold text-neutral-900">Improve Signal</h2>
+                <p className="text-sm text-neutral-600">{signal.symbol} - Add your expertise</p>
+              </div>
               <button
                 onClick={onClose}
-                className="text-neutral-400 hover:text-neutral-600 transition-colors"
+                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Signal Summary */}
-            <div className="bg-neutral-50 rounded-lg p-4 mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-lg">{signal.symbol}</h3>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  signal.side === 'long' 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  {signal.side.toUpperCase()}
-                </span>
-              </div>
-              <p className="text-sm text-neutral-600">{signal.confidence}% confidence</p>
-            </div>
-
-            {/* Improvement Type */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-neutral-700 mb-3">
-                Improvement Type
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: 'entry-adjustment', label: 'Entry Price' },
-                  { value: 'stop-loss-adjustment', label: 'Stop Loss' },
-                  { value: 'take-profit-adjustment', label: 'Take Profit' },
-                  { value: 'analysis-enhancement', label: 'Analysis' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => handleTypeChange(option.value as any)}
-                    className={`p-3 text-sm rounded-md border transition-colors ${
-                      improvementType === option.value
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-neutral-200 hover:bg-neutral-50'
-                    }`}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              <div className="space-y-6">
+                {/* Improvement Type */}
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    Improvement Type
+                  </label>
+                  <select
+                    value={improvementData.improvementType}
+                    onChange={(e) => handleImprovementChange('improvementType', e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-neutral-500 mt-2">
-                {getImprovementDescription()}
-              </p>
-            </div>
-
-            {/* Value Inputs */}
-            {improvementType !== 'analysis-enhancement' && (
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Original Value
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={originalValue}
-                    onChange={(e) => setOriginalValue(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-neutral-200 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500"
-                    disabled
-                  />
+                    <option value="entry-adjustment">Entry Price Adjustment</option>
+                    <option value="stop-loss-adjustment">Stop Loss Adjustment</option>
+                    <option value="take-profit-adjustment">Take Profit Adjustment</option>
+                    <option value="analysis-enhancement">Analysis Enhancement</option>
+                  </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Improved Value
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={improvedValue}
-                    onChange={(e) => setImprovedValue(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-neutral-200 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500"
-                  />
-                </div>
-              </div>
-            )}
 
-            {/* Reasoning */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Reasoning *
-              </label>
-              <textarea
-                value={reasoning}
-                onChange={(e) => setReasoning(e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border border-neutral-200 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500"
-                placeholder="Explain why this improvement makes the signal better..."
-                required
-              />
-              <p className="text-xs text-neutral-500 mt-1">
-                Detailed reasoning helps achieve higher quality scores (50+ required for approval)
-              </p>
-            </div>
-
-            {/* Revenue Info */}
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6">
-              <div className="flex items-center">
-                <TrendingUp className="w-5 h-5 text-green-600 mr-2" />
-                <p className="text-sm text-green-800">
-                  <strong>60% royalty</strong> on all future sales of your improvement
-                </p>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex space-x-3">
-              <Button
-                variant="secondary"
-                onClick={onClose}
-                disabled={submitting}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleSubmit}
-                disabled={submitting || !reasoning.trim() || (improvementType !== 'analysis-enhancement' && improvedValue === originalValue)}
-                className="flex-1"
-              >
-                {submitting ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Submitting...
+                {/* Value Adjustment */}
+                {improvementData.improvementType !== 'analysis-enhancement' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 mb-2">
+                        Original Value
+                      </label>
+                      <input
+                        type="number"
+                        value={getOriginalValue()}
+                        disabled
+                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg bg-neutral-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 mb-2">
+                        Improved Value
+                      </label>
+                      <input
+                        type="number"
+                        value={improvementData.improvedValue}
+                        onChange={(e) => handleImprovementChange('improvedValue', Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
-                ) : (
-                  'Submit Improvement'
                 )}
-              </Button>
+
+                {/* Reasoning */}
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    Improvement Reasoning
+                  </label>
+                  <textarea
+                    value={improvementData.reasoning}
+                    onChange={(e) => handleImprovementChange('reasoning', e.target.value)}
+                    placeholder="Explain your improvement with technical analysis, market insights, or other relevant factors..."
+                    rows={6}
+                    className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-sm text-neutral-500 mt-1">
+                    {improvementData.reasoning.length}/1000 characters
+                  </p>
+                </div>
+
+                {/* Quality Assessment Result */}
+                {qualityScore !== null && (
+                  <div className={`p-4 rounded-lg border ${
+                    qualityScore >= 50 
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-red-50 border-red-200'
+                  }`}>
+                    <div className="flex items-center mb-2">
+                      {qualityScore >= 50 ? (
+                        <Check className="w-5 h-5 text-green-600 mr-2" />
+                      ) : (
+                        <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+                      )}
+                      <h3 className={`font-semibold ${
+                        qualityScore >= 50 ? 'text-green-900' : 'text-red-900'
+                      }`}>
+                        Quality Assessment: {qualityScore}/100
+                      </h3>
+                    </div>
+                    <p className={`text-sm ${
+                      qualityScore >= 50 ? 'text-green-800' : 'text-red-800'
+                    }`}>
+                      {qualityScore >= 50 
+                        ? 'Great! Your improvement meets quality standards and can be minted as IP.'
+                        : 'Quality too low. Please provide more detailed reasoning and substantial improvements.'
+                      }
+                    </p>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  {qualityScore === null ? (
+                    <button
+                      onClick={checkImprovementQuality}
+                      disabled={checking || !improvementData.reasoning.trim()}
+                      className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center disabled:opacity-50"
+                    >
+                      {checking ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Checking Quality...
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-4 h-4 mr-2" />
+                          Check Improvement Impact
+                        </>
+                      )}
+                    </button>
+                  ) : canMint ? (
+                    <button
+                      onClick={handleMintImprovement}
+                      disabled={minting}
+                      className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center disabled:opacity-50"
+                    >
+                      {minting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Minting IP...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 mr-2" />
+                          Mint as Derivative IP
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setQualityScore(null);
+                        setCanMint(false);
+                      }}
+                      className="flex-1 bg-orange-600 text-white py-3 px-4 rounded-lg hover:bg-orange-700 transition-colors font-medium"
+                    >
+                      Revise Improvement
+                    </button>
+                  )}
+                  
+                  <button
+                    onClick={onClose}
+                    className="px-6 py-3 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
           </motion.div>
-        </motion.div>
+        </div>
       )}
     </AnimatePresence>
   );

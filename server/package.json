@@ -25,6 +25,7 @@
     "express-rate-limit": "^8.0.1",
     "helmet": "^8.1.0",
     "hyperliquid": "^1.7.6",
+    "jose": "^6.0.12",
     "jsdom": "^26.1.0",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",

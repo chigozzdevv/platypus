@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import * as jose from 'jose';
 import { env } from '@/shared/config/env';
 import { logger } from '@/shared/utils/logger';
 import { encrypt, decrypt } from '@/shared/utils/encryption';
@@ -9,6 +10,22 @@ import { CustomError } from '@/shared/middleware/error.middleware';
 import { Types } from 'mongoose';
 
 export class AuthService {
+  private async verifyOriginJWT(originJWT: string): Promise<any> {
+    try {
+      const JWKS = jose.createRemoteJWKSet(new URL('https://api.origin.campnetwork.xyz/.well-known/jwks'));
+      
+      const { payload } = await jose.jwtVerify(originJWT, JWKS, {
+        issuer: 'https://api.origin.campnetwork.xyz',
+        audience: env.CAMP_CLIENT_ID,
+      });
+
+      return payload;
+    } catch (error) {
+      logger.error('Invalid Origin JWT', { error });
+      throw new CustomError('INVALID_ORIGIN_JWT', 401, 'Invalid Camp Network authentication token');
+    }
+  }
+
   async verifyAndConnect(
     walletAddress: string,
     signature: string,
@@ -21,25 +38,37 @@ export class AuthService {
       throw new CustomError('CAMP_JWT_REQUIRED', 401, 'Camp Network authentication required');
     }
 
-    logger.info('Camp Network authentication successful', { walletAddress: normalizedAddress });
+    const jwtPayload = await this.verifyOriginJWT(originJWT);
+    
+    if (jwtPayload.walletAddress?.toLowerCase() !== normalizedAddress) {
+      throw new CustomError('WALLET_MISMATCH', 401, 'JWT wallet address does not match provided address');
+    }
+
+    logger.info('Camp Network authentication verified', { walletAddress: normalizedAddress });
+
+    const isPlatformWallet = normalizedAddress === env.PLATFORM_WALLET_ADDRESS?.toLowerCase();
 
     let user = await User.findOne({ walletAddress: normalizedAddress });
     
     if (!user) {
-      const username = await this.generateUniqueUsername(walletAddress);
+      const username = isPlatformWallet ? 'admin' : await this.generateUniqueUsername(walletAddress);
       user = new User({
         walletAddress: normalizedAddress,
         username,
+        userType: isPlatformWallet ? 'admin' : 'user',
       });
       await user.save();
-      logger.info('New user created via Camp Network', { walletAddress: normalizedAddress, username });
-    } else {
-      logger.info('Existing user authenticated via Camp Network', { walletAddress: normalizedAddress, username: user.username });
+      logger.info('New user created', { walletAddress: normalizedAddress, userType: user.userType });
+    } else if (isPlatformWallet && user.userType !== 'admin') {
+      user.userType = 'admin';
+      await user.save();
+      logger.info('User promoted to admin', { walletAddress: normalizedAddress });
     }
 
     const payload: JWTPayload = {
       userId: (user._id as Types.ObjectId).toString(),
       walletAddress: normalizedAddress,
+      userType: user.userType,
     };
     
     const token = jwt.sign(payload, env.JWT_SECRET);
@@ -61,19 +90,13 @@ export class AuthService {
   ): Promise<UserDocument> {
     const user = await User.findById(userId);
     if (!user) {
-      const error = new Error('User not found') as CustomError;
-      error.statusCode = 404;
-      error.code = 'USER_NOT_FOUND';
-      throw error;
+      throw new CustomError('USER_NOT_FOUND', 404, 'User not found');
     }
 
     if (updates.username && updates.username !== user.username) {
       const existingUser = await User.findOne({ username: updates.username });
       if (existingUser) {
-        const error = new Error('Username already taken') as CustomError;
-        error.statusCode = 409;
-        error.code = 'USERNAME_TAKEN';
-        throw error;
+        throw new CustomError('USERNAME_TAKEN', 409, 'Username already taken');
       }
     }
 
@@ -91,24 +114,15 @@ export class AuthService {
   ): Promise<void> {
     const user = await User.findById(userId);
     if (!user) {
-      const error = new Error('User not found') as CustomError;
-      error.statusCode = 404;
-      error.code = 'USER_NOT_FOUND';
-      throw error;
+      throw new CustomError('USER_NOT_FOUND', 404, 'User not found');
     }
 
     if (!credentials.privateKey.match(/^0x[0-9a-fA-F]{64}$/)) {
-      const error = new Error('Invalid private key format') as CustomError;
-      error.statusCode = 400;
-      error.code = 'INVALID_PRIVATE_KEY';
-      throw error;
+      throw new CustomError('INVALID_PRIVATE_KEY', 400, 'Invalid private key format');
     }
 
     if (!credentials.walletAddress.match(/^0x[0-9a-fA-F]{40}$/)) {
-      const error = new Error('Invalid wallet address format') as CustomError;
-      error.statusCode = 400;
-      error.code = 'INVALID_WALLET_ADDRESS';
-      throw error;
+      throw new CustomError('INVALID_WALLET_ADDRESS', 400, 'Invalid wallet address format');
     }
 
     const encryptedPrivateKey = encrypt(credentials.privateKey);
@@ -131,10 +145,7 @@ export class AuthService {
   ): Promise<{ privateKey: string; walletAddress: string } | null> {
     const user = await User.findById(userId).select('+connectedExchanges.hyperliquid.apiKey');
     if (!user) {
-      const error = new Error('User not found') as CustomError;
-      error.statusCode = 404;
-      error.code = 'USER_NOT_FOUND';
-      throw error;
+      throw new CustomError('USER_NOT_FOUND', 404, 'User not found');
     }
 
     const exchangeConfig = user.connectedExchanges?.hyperliquid;
@@ -152,10 +163,7 @@ export class AuthService {
       };
     } catch (error) {
       logger.error('Error decrypting exchange credentials', { userId, exchange, error });
-      const customError = new Error('Failed to decrypt credentials') as CustomError;
-      customError.statusCode = 500;
-      customError.code = 'DECRYPTION_ERROR';
-      throw customError;
+      throw new CustomError('DECRYPTION_ERROR', 500, 'Failed to decrypt credentials');
     }
   }
 

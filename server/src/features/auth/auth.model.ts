@@ -18,6 +18,11 @@ const UserSchema = new Schema<UserDocument>(
       minlength: 3,
       maxlength: 50,
     },
+    userType: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
+    },
     bio: {
       type: String,
       maxlength: 500,
@@ -74,7 +79,7 @@ const UserSchema = new Schema<UserDocument>(
         },
         apiKey: {
           type: String,
-          select: false, // Never return in queries by default
+          select: false,
         },
         secretKey: {
           type: String,
@@ -104,14 +109,8 @@ const UserSchema = new Schema<UserDocument>(
 
 UserSchema.index({ walletAddress: 1 });
 UserSchema.index({ username: 1 });
+UserSchema.index({ userType: 1 });
 UserSchema.index({ reputation: -1 });
 UserSchema.index({ totalEarnings: -1 });
-
-UserSchema.methods.toSafeObject = function() {
-  const obj = this.toObject();
-  delete obj.connectedExchanges?.hyperliquid?.apiKey;
-  delete obj.connectedExchanges?.hyperliquid?.secretKey;
-  return obj;
-};
 
 export const User = mongoose.model<UserDocument>('User', UserSchema);

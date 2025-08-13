@@ -6,6 +6,7 @@ export interface User {
   avatar?: string;
   specialties: string[];
   reputation: number;
+  userType: 'user' | 'admin';
   createdAt: string;
 }
 
@@ -13,6 +14,7 @@ export interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   isLoading: boolean;
 }
 

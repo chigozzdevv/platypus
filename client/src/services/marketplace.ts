@@ -1,41 +1,87 @@
-import api from './api';
-import type { IPAsset, PurchaseRequest, UserAsset } from '@/types/marketplace';
-
-interface MarketplaceResponse {
-  assets: IPAsset[];
-  total: number;
-}
+import { signalsService } from './signals';
+import { campService } from './camp';
+import type { Signal } from '@/types/signals';
+import type { MarketplaceResponse } from '@/types/marketplace';
 
 export const marketplaceService = {
   async getMarketplace(params?: {
-    type?: string;
     symbol?: string;
+    minConfidence?: number;
+    sortBy?: string;
     limit?: number;
     offset?: number;
   }): Promise<MarketplaceResponse> {
-    const searchParams = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          searchParams.append(key, value.toString());
-        }
+    // Get all public signals that have improvements
+    const response = await signalsService.getPublicSignals({
+      ...params,
+      hasImprovements: true,
+    });
+
+    const improvedSignals = response.signals
+      .filter((signal: Signal) => signal.improvements && signal.improvements.length > 0)
+      .map((signal: Signal) => {
+        const improvement = signal.improvements![0];
+        return {
+          id: signal.id,
+          symbol: signal.symbol,
+          side: signal.side,
+          confidence: signal.confidence,
+          description: `Improved ${signal.symbol} trading signal. ${improvement.reasoning.slice(0, 150)}...`,
+          creator: signal.creator,
+          improvement: {
+            type: improvement.improvementType,
+            creator: improvement.creator,
+            qualityScore: improvement.qualityScore,
+            ipTokenId: improvement.ipTokenId,
+            reasoning: improvement.reasoning,
+          },
+          originalTokenId: signal.ipTokenId!,
+          totalUsage: 0,
+          createdAt: improvement.createdAt,
+          accessPrice: '1 CAMP',
+          fullSignal: signal,
+        };
       });
-    }
-    return api.get(`/ip/marketplace?${searchParams.toString()}`);
+
+    return {
+      signals: improvedSignals,
+      total: improvedSignals.length
+    };
   },
 
-  async registerIP(data: {
-    signalId: string;
-    improvementIndex?: number;
-  }): Promise<void> {
-    return api.post('/ip/register', data);
+  async purchaseImprovementAccess(improvementTokenId: string): Promise<{ success: boolean; transactionHash: string }> {
+    const result = await campService.purchaseAccess(improvementTokenId, 1);
+    
+    return {
+      success: true,
+      transactionHash: result.transactionHash || ''
+    };
   },
 
-  async purchaseAccess(data: PurchaseRequest): Promise<void> {
-    return api.post('/ip/purchase', data);
+  async checkImprovementAccess(improvementTokenId: string): Promise<{ hasAccess: boolean }> {
+    const hasAccess = await campService.checkAccess(improvementTokenId);
+    return { hasAccess };
   },
 
-  async getUserAssets(): Promise<{ assets: UserAsset[]; total: number }> {
-    return api.get('/ip/user/assets');
+  async getSignalDetails(signalId: string): Promise<Signal> {
+    const { signal } = await signalsService.getSignal(signalId);
+    return signal;
+  },
+
+  async getUserAssets(): Promise<{ assets: any[]; total: number }> {
+    const userSignals = await signalsService.getUserSignals();
+    
+    const assets = userSignals.signals
+      .filter((signal: Signal) => signal.registeredAsIP)
+      .map((signal: Signal) => ({
+        tokenId: signal.ipTokenId,
+        name: `${signal.symbol} Trading Signal`,
+        type: 'signal',
+        revenue: 0,
+        totalSales: 0,
+        createdAt: signal.createdAt
+      }));
+
+    return { assets, total: assets.length };
   },
 };

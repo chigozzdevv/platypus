@@ -7,6 +7,7 @@ interface AuthState {
   token: string | null;
   campJWT: string | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   isLoading: boolean;
   setUser: (user: User | null) => void;
   setToken: (token: string | null) => void;
@@ -20,10 +21,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem('auth_token'),
   campJWT: localStorage.getItem('camp_jwt'),
   isAuthenticated: !!localStorage.getItem('auth_token'),
+  isAdmin: false,
   isLoading: false,
 
-  setUser: (user) => set({ user, isAuthenticated: !!user }),
-    
+  setUser: (user) => set({ 
+    user, 
+    isAuthenticated: !!user,
+    isAdmin: user?.userType === 'admin'
+  }),
+
   setToken: (token) => {
     set({ token, isAuthenticated: !!token });
     if (token) {
@@ -42,12 +48,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         message: '',
         originJWT: campJWT,
       });
-            
+
       set({
         user: response.user,
         token: response.token,
         campJWT: campJWT || null,
         isAuthenticated: true,
+        isAdmin: response.user.userType === 'admin',
         isLoading: false,
       });
 
@@ -67,6 +74,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       token: null,
       campJWT: null,
       isAuthenticated: false,
+      isAdmin: false,
     });
     localStorage.removeItem('camp_jwt');
   },
@@ -78,7 +86,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const user = await authService.getProfile();
-      set({ user, isLoading: false });
+      set({ 
+        user, 
+        isLoading: false,
+        isAdmin: user.userType === 'admin'
+      });
     } catch (error) {
       console.error('Failed to load user:', error);
       get().logout();

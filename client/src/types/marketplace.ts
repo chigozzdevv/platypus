@@ -1,37 +1,33 @@
-export interface IPAsset {
-  tokenId: string;
-  name: string;
+import type { Signal } from './signals';
+
+export interface MarketplaceSignal {
+  id: string;
+  symbol: string;
+  side: 'long' | 'short';
+  confidence: number;
   description: string;
-  type: 'base' | 'improvement';
-  price: number;
-  currency: string;
   creator: {
     username: string;
     reputation: number;
   };
-  symbol: string;
-  side: 'long' | 'short';
-  confidence: number;
-  totalSales: number;
-  previewOnly: boolean;
-  signal?: {
-    entryPrice: number;
-    stopLoss?: number;
-    takeProfit?: number;
-    leverage?: number;
+  improvement: {
+    type: string;
+    creator: {
+      username: string;
+      reputation: number;
+    };
+    qualityScore: number;
+    ipTokenId?: string;
+    reasoning: string;
   };
-}
-
-export interface PurchaseRequest {
-  tokenId: string;
-  periods: number;
-}
-
-export interface UserAsset {
-  tokenId: string;
-  name: string;
-  type: 'base' | 'improvement';
-  revenue: number;
-  totalSales: number;
+  originalTokenId: string;
+  totalUsage: number;
   createdAt: string;
+  accessPrice: string;
+  fullSignal: Signal;
+}
+
+export interface MarketplaceResponse {
+  signals: MarketplaceSignal[];
+  total: number;
 }

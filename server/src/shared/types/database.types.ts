@@ -8,6 +8,7 @@ export interface BaseDocument extends Document {
 export interface UserDocument extends BaseDocument {
   walletAddress: string;
   username: string;
+  userType: 'user' | 'admin';
   bio?: string;
   avatar?: string;
   specialties: string[];
@@ -68,6 +69,8 @@ export interface SignalDocument extends BaseDocument {
     closedAt?: Date;
   };
   status: 'active' | 'expired' | 'executed' | 'cancelled';
+  adminStatus: 'pending_review' | 'approved_for_minting' | 'rejected' | 'minted';
+  adminNotes?: string;
   expiresAt: Date;
   registeredAsIP: boolean;
   ipTokenId?: string;

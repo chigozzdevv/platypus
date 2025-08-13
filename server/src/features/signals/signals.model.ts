@@ -108,6 +108,12 @@ const SignalSchema = new Schema<SignalDocument>(
       enum: ['active', 'expired', 'executed', 'cancelled'],
       default: 'active',
     },
+    adminStatus: {
+      type: String,
+      enum: ['pending_review', 'approved_for_minting', 'rejected', 'minted'],
+      default: 'pending_review',
+    },
+    adminNotes: String,
     expiresAt: {
       type: Date,
       required: true,
@@ -191,9 +197,11 @@ const SignalSchema = new Schema<SignalDocument>(
 SignalSchema.index({ creator: 1 });
 SignalSchema.index({ symbol: 1 });
 SignalSchema.index({ status: 1 });
+SignalSchema.index({ adminStatus: 1 });
 SignalSchema.index({ createdAt: -1 });
 SignalSchema.index({ 'performance.outcome': 1 });
 SignalSchema.index({ confidence: -1 });
 SignalSchema.index({ totalUsage: -1 });
+SignalSchema.index({ registeredAsIP: 1 });
 
 export const Signal = mongoose.model<SignalDocument>('Signal', SignalSchema);

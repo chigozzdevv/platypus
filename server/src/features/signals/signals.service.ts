@@ -4,7 +4,6 @@ import { tradingService } from '../trading/trading.service';
 import { authService } from '../auth/auth.service';
 import { logger } from '@/shared/utils/logger';
 import { CustomError } from '@/shared/middleware/error.middleware';
-import { env } from '@/shared/config/env';
 
 export interface CreateSignalParams {
   symbol?: string;
@@ -21,7 +20,6 @@ export interface ImproveSignalParams {
 }
 
 class SignalsService {
-  // Platform-level automated signal generation
   async generatePlatformSignals(count: number = 25): Promise<SignalDocument[]> {
     try {
       logger.info('Starting platform signal generation', { targetCount: count });
@@ -53,33 +51,17 @@ class SignalsService {
             ...tradingSignal,
             status: 'active',
             isPublic: true,
-            isPlatformGenerated: true
+            adminStatus: 'pending_review',
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
           });
 
           await signal.save();
-
-          // Auto-mint as IP NFT using platform wallet
-          const { campService } = await import('../ip/camp.service');
-          
-          const baseIPRegistration = await campService.registerSignalAsIP(
-            signal,
-            null,
-            env.PLATFORM_WALLET_PRIVATE_KEY,
-            env.PLATFORM_WALLET_ADDRESS
-          );
-          
-          signal.registeredAsIP = true;
-          signal.ipTokenId = baseIPRegistration.tokenId;
-          signal.ipTransactionHash = baseIPRegistration.transactionHash;
-          await signal.save();
-
           generatedSignals.push(signal);
           
-          logger.info('Platform signal generated and minted', { 
+          logger.info('Platform signal generated', { 
             signalId: signal._id,
             symbol: opportunity.symbol,
-            winRate: opportunity.winRate,
-            tokenId: baseIPRegistration.tokenId
+            winRate: opportunity.winRate
           });
 
         } catch (error) {
@@ -100,7 +82,6 @@ class SignalsService {
     }
   }
 
-  // User-initiated signal creation (legacy support, requires credentials)
   async createAISignal(
     userId: string,
     params: CreateSignalParams
@@ -155,24 +136,10 @@ class SignalsService {
         ...tradingSignal,
         status: 'active',
         isPublic: true,
+        adminStatus: 'pending_review'
       });
 
       await signal.save();
-      
-      const { campService } = await import('../ip/camp.service');
-      
-      const baseIPRegistration = await campService.registerSignalAsIP(
-        signal,
-        null, 
-        credentials.privateKey,
-        credentials.walletAddress
-      );
-      
-      signal.registeredAsIP = true;
-      signal.ipTokenId = baseIPRegistration.tokenId;
-      signal.ipTransactionHash = baseIPRegistration.transactionHash;
-      await signal.save();
-
       return signal;
     } catch (error) {
       logger.error('Failed to create user AI signal', { error, userId, params });
@@ -252,114 +219,6 @@ class SignalsService {
     await signal.save();
     return signal;
   }
-  
-  async getMarketplaceSignals(filters: {
-    symbol?: string;
-    side?: 'long' | 'short';
-    minConfidence?: number;
-    sortBy?: 'newest' | 'confidence' | 'quality';
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<{ signals: any[]; total: number }> {
-    const query: any = { 
-      status: 'active',
-      improvements: { $exists: true, $size: 1 }
-    };
-
-    if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
-    if (filters.side) query.side = filters.side;
-    if (filters.minConfidence) query.confidence = { $gte: filters.minConfidence };
-
-    const limit = Math.min(filters.limit || 20, 100);
-    const offset = filters.offset || 0;
-
-    let sortOption: any = { createdAt: -1 };
-    if (filters.sortBy === 'confidence') sortOption = { confidence: -1 };
-    if (filters.sortBy === 'quality') sortOption = { 'improvements.qualityScore': -1 };
-
-    const [signals, total] = await Promise.all([
-      Signal.find(query)
-        .populate('creator', 'username avatar reputation')
-        .populate('improvements.user', 'username avatar reputation')
-        .sort(sortOption)
-        .limit(limit)
-        .skip(offset),
-      Signal.countDocuments(query)
-    ]);
-
-    const previewSignals = signals.map(signal => ({
-      id: signal._id,
-      symbol: signal.symbol,
-      side: signal.side,
-      confidence: signal.confidence,
-      qualityScore: signal.qualityScore,
-      creator: signal.creator,
-      improvements: signal.improvements.map((imp: any) => ({
-        user: imp.user,
-        improvementType: imp.improvementType,
-        qualityScore: imp.qualityScore,
-        revenueShare: imp.revenueShare,
-        createdAt: imp.createdAt
-      })),
-      createdAt: signal.createdAt,
-      expiresAt: signal.expiresAt,
-      previewOnly: true
-    }));
-
-    return { signals: previewSignals, total };
-  }
-
-  async getFullSignalAccess(signalId: string, userId: string): Promise<SignalDocument | null> {
-    const signal = await Signal.findById(signalId)
-      .populate('creator', 'username avatar reputation')
-      .populate('improvements.user', 'username avatar reputation');
-
-    if (!signal) return null;
-
-    const hasIPRegistration = signal.registeredAsIP || 
-      signal.improvements?.some(imp => imp.registeredAsIP);
-
-    if (!hasIPRegistration) {
-      return signal;
-    }
-
-    const { campService } = await import('../ip/camp.service');
-    const { authService } = await import('../auth/auth.service');
-
-    try {
-      const credentials = await authService.getExchangeCredentials(userId, 'hyperliquid');
-      if (!credentials) {
-        throw new CustomError('CREDENTIALS_REQUIRED', 400, 'Wallet credentials required');
-      }
-
-      let hasAccess = false;
-      if (signal.ipTokenId) {
-        const accessInfo = await campService.checkAccess(signal.ipTokenId, credentials.walletAddress);
-        hasAccess = accessInfo.hasAccess;
-      }
-
-      if (!hasAccess && signal.improvements) {
-        for (const improvement of signal.improvements) {
-          if (improvement.ipTokenId) {
-            const accessInfo = await campService.checkAccess(improvement.ipTokenId, credentials.walletAddress);
-            if (accessInfo.hasAccess) {
-              hasAccess = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!hasAccess) {
-        throw new CustomError('ACCESS_DENIED', 403, 'Payment required for IP-registered signal');
-      }
-
-      return signal;
-    } catch (error) {
-      logger.error('Failed to verify signal access', { error, signalId, userId });
-      throw error;
-    }
-  }
 
   async getImprovableSignals(filters: {
     symbol?: string;
@@ -371,12 +230,13 @@ class SignalsService {
     const query: any = {
       isPublic: true,
       status: 'active',
+      registeredAsIP: true,
+      adminStatus: 'minted',
       $or: [
         { improvements: { $exists: false } },
         { improvements: { $size: 0 } }
       ],
-      expiresAt: { $gte: new Date() },
-      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      expiresAt: { $gte: new Date() }
     };
 
     if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
@@ -542,6 +402,148 @@ class SignalsService {
     ]);
 
     return { signals, total };
+  }
+
+  // ADMIN METHODS
+  async getSignalsForAdminReview(filters: {
+    minConfidence?: number;
+    maxAge?: number;
+    symbol?: string;
+    aiModel?: string;
+    sortBy?: string;
+    limit?: number;
+  } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
+    const query: any = {
+      creator: 'platform',
+      status: 'active',
+      adminStatus: 'pending_review',
+    };
+
+    if (filters.minConfidence) query.confidence = { $gte: filters.minConfidence };
+    if (filters.maxAge) {
+      query.createdAt = { $gte: new Date(Date.now() - filters.maxAge * 60 * 60 * 1000) };
+    }
+    if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
+    if (filters.aiModel) query.aiModel = filters.aiModel;
+
+    const limit = Math.min(filters.limit || 50, 100);
+    let sortOption: any = { createdAt: -1 };
+    
+    if (filters.sortBy === 'confidence') sortOption = { confidence: -1 };
+    if (filters.sortBy === 'newest') sortOption = { createdAt: -1 };
+
+    const [signals, total] = await Promise.all([
+      Signal.find(query).sort(sortOption).limit(limit),
+      Signal.countDocuments(query)
+    ]);
+
+    return { signals, total };
+  }
+
+  async updateSignalAdminStatus(
+    signalId: string,
+    adminStatus: 'approved_for_minting' | 'rejected' | 'minted',
+    adminNotes?: string
+  ): Promise<SignalDocument> {
+    const signal = await Signal.findById(signalId);
+    if (!signal) {
+      throw new CustomError('SIGNAL_NOT_FOUND', 404, 'Signal not found');
+    }
+
+    signal.adminStatus = adminStatus;
+    if (adminNotes) signal.adminNotes = adminNotes;
+
+    await signal.save();
+    return signal;
+  }
+
+  async markSignalMinted(
+    signalId: string,
+    data: { tokenId: string; transactionHash: string }
+  ): Promise<SignalDocument> {
+    const signal = await Signal.findById(signalId);
+    if (!signal) {
+      throw new CustomError('SIGNAL_NOT_FOUND', 404, 'Signal not found');
+    }
+
+    signal.registeredAsIP = true;
+    signal.ipTokenId = data.tokenId;
+    signal.ipTransactionHash = data.transactionHash;
+    signal.adminStatus = 'minted';
+
+    await signal.save();
+    return signal;
+  }
+
+  async markImprovementMinted(
+    signalId: string,
+    improvementIndex: number,
+    data: { tokenId: string; transactionHash: string }
+  ): Promise<SignalDocument> {
+    const signal = await Signal.findById(signalId);
+    if (!signal || !signal.improvements || !signal.improvements[improvementIndex]) {
+      throw new CustomError('IMPROVEMENT_NOT_FOUND', 404, 'Improvement not found');
+    }
+
+    signal.improvements[improvementIndex].registeredAsIP = true;
+    signal.improvements[improvementIndex].ipTokenId = data.tokenId;
+    signal.improvements[improvementIndex].ipTransactionHash = data.transactionHash;
+
+    await signal.save();
+    return signal;
+  }
+
+  async getAllSignalsForAdmin(filters: {
+    adminStatus?: string;
+    symbol?: string;
+    aiModel?: string;
+    sortBy?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
+    const query: any = {
+      creator: 'platform'
+    };
+
+    if (filters.adminStatus) query.adminStatus = filters.adminStatus;
+    if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
+    if (filters.aiModel) query.aiModel = filters.aiModel;
+
+    const limit = Math.min(filters.limit || 50, 100);
+    const offset = filters.offset || 0;
+
+    let sortOption: any = { createdAt: -1 };
+    if (filters.sortBy === 'confidence') sortOption = { confidence: -1 };
+    if (filters.sortBy === 'oldest') sortOption = { createdAt: 1 };
+
+    const [signals, total] = await Promise.all([
+      Signal.find(query)
+        .sort(sortOption)
+        .limit(limit)
+        .skip(offset),
+      Signal.countDocuments(query)
+    ]);
+
+    return { signals, total };
+  }
+
+  async getFullSignalAccess(signalId: string, userId: string): Promise<SignalDocument | null> {
+    const signal = await Signal.findById(signalId)
+      .populate('creator', 'username avatar reputation')
+      .populate('improvements.user', 'username avatar reputation');
+
+    if (!signal) return null;
+
+    const hasIPRegistration = signal.registeredAsIP || 
+      signal.improvements?.some(imp => imp.registeredAsIP);
+
+    if (!hasIPRegistration) {
+      return signal;
+    }
+
+    // Here you would integrate with Camp Network client-side access checking
+    // For now, just return the signal - access checking will be done client-side
+    return signal;
   }
 
   private async assessImprovementQuality(

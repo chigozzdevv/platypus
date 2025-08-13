@@ -116,7 +116,7 @@ export const initializeApp = async (): Promise<void> => {
   }
 
   try {
-    const { campService } = await import('@/features/ip/camp.service');
+    const { campService } = await import('@/features/ip-redacted-2-client/camp.service');
     await retryAsync(async () => {
       await campService.ensurePlatformReady();
       logger.info('Camp platform wallet ready');

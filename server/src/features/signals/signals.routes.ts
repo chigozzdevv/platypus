@@ -1,6 +1,7 @@
+// signals/signals.routes.ts
 import { Router } from 'express';
 import { signalsController } from './signals.controller';
-import { authMiddleware } from '@/shared/middleware/auth.middleware';
+import { authMiddleware, adminMiddleware } from '@/shared/middleware/auth.middleware';
 import { validateBody, validateParams } from '@/shared/middleware/validation.middleware';
 import { z } from 'zod';
 
@@ -31,6 +32,20 @@ const signalIdSchema = z.object({
   signalId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid signal ID format'),
 });
 
+const adminNotesSchema = z.object({
+  adminNotes: z.string().optional(),
+});
+
+const markMintedSchema = z.object({
+  tokenId: z.string().min(1),
+  transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'Invalid transaction hash'),
+});
+
+const improvementIndexSchema = z.object({
+  signalId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid signal ID format'),
+  improvementIndex: z.string().regex(/^\d+$/, 'Invalid improvement index'),
+});
+
 // Public routes
 router.get('/public', signalsController.getPublicSignals);
 router.get('/improvable', signalsController.getImprovableSignals);
@@ -46,15 +61,8 @@ router.post(
   signalsController.createSignal
 );
 
-router.get(
-  '/user/signals',
-  signalsController.getUserSignals
-);
-
-router.get(
-  '/user/stats',
-  signalsController.getUserStats
-);
+router.get('/user/signals', signalsController.getUserSignals);
+router.get('/user/stats', signalsController.getUserStats);
 
 router.post(
   '/:signalId/improve',
@@ -68,6 +76,45 @@ router.put(
   validateParams(signalIdSchema),
   validateBody(updatePerformanceSchema),
   signalsController.updatePerformance
+);
+
+router.put(
+  '/:signalId/mark-minted',
+  validateParams(signalIdSchema),
+  validateBody(markMintedSchema),
+  signalsController.markSignalMinted
+);
+
+router.put(
+  '/:signalId/improvements/:improvementIndex/mark-minted',
+  validateParams(improvementIndexSchema),
+  validateBody(markMintedSchema),
+  signalsController.markImprovementMinted
+);
+
+// Admin only routes
+router.use(adminMiddleware);
+
+router.post(
+  '/admin/generate-platform',
+  validateBody(z.object({ count: z.number().min(1).max(100).default(25) })),
+  signalsController.generatePlatformSignals
+);
+
+router.get('/admin/pending', signalsController.getSignalsForReview);
+
+router.put(
+  '/admin/:signalId/approve',
+  validateParams(signalIdSchema),
+  validateBody(adminNotesSchema),
+  signalsController.approveSignal
+);
+
+router.put(
+  '/admin/:signalId/reject',
+  validateParams(signalIdSchema),
+  validateBody(adminNotesSchema),
+  signalsController.rejectSignal
 );
 
 router.post('/expire', signalsController.expireSignals);

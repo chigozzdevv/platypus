@@ -1,11 +1,8 @@
 import { Request } from 'express';
+import { AuthUser } from '@/shared/middleware/auth.types';
 
 export interface AuthenticatedRequest extends Request {
-  user: {
-    id: string;
-    walletAddress: string;
-    username?: string;
-  };
+  user: AuthUser;
 }
 
 export interface PaginationQuery {

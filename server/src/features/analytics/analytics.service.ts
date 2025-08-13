@@ -1,7 +1,7 @@
 import { Signal } from '../signals/signals.model';
 import { Trade } from '../trading/trading.model';
 import { User } from '../auth/auth.model';
-import { IPAsset } from '../ip/ip.model';
+import { IPAsset } from '../ip-redacted-2-client/ip.model';
 import { AnalyticsSnapshot } from './analytics.model';
 import { logger } from '@/shared/utils/logger';
 import { CustomError } from '@/shared/middleware/error.middleware';

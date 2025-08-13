@@ -21,8 +21,8 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   loadPositions: async () => {
     set({ isLoading: true, error: null });
     try {
-      const response = await tradingService.getPositions();
-      set({ positions: response.positions, isLoading: false });
+      const positions = await tradingService.getPositions();
+      set({ positions, isLoading: false });
     } catch (error) {
       set({ error: 'Failed to load positions', isLoading: false });
       console.error('Failed to load positions:', error);

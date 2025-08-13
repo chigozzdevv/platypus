@@ -16,12 +16,22 @@ export interface Signal {
   registeredAsIP: boolean;
   ipTokenId?: string;
   ipTransactionHash?: string;
+  adminStatus?: 'pending_review' | 'approved_for_minting' | 'rejected' | 'minted';
+  adminNotes?: string;
+  improvements?: SignalImprovement[];
   creator: {
+    id: string;
     username: string;
     reputation: number;
+    avatar?: string;
   };
   createdAt: string;
   updatedAt: string;
+  expiresAt: string;
+  isExpired?: boolean;
+  totalUsage?: number;
+  aiModel?: string;
+  status: 'active' | 'expired' | 'completed';
 }
 
 export interface CreateSignalRequest {
@@ -39,15 +49,31 @@ export interface ImproveSignalRequest {
 
 export interface SignalImprovement {
   id: string;
-  signalId: string;
-  type: string;
+  improvementType: 'entry-adjustment' | 'stop-loss-adjustment' | 'take-profit-adjustment' | 'analysis-enhancement';
   originalValue: number;
   improvedValue: number;
   reasoning: string;
   qualityScore: number;
+  registeredAsIP: boolean;
+  ipTokenId?: string;
+  ipTransactionHash?: string;
   creator: {
+    id: string;
     username: string;
     reputation: number;
+    avatar?: string;
   };
   createdAt: string;
+}
+
+export interface ImprovementQualityCheck {
+  score: number;
+  canMint: boolean;
+  feedback: string[];
+  requiredScore: number;
+}
+
+export interface SignalsResponse {
+  signals: Signal[];
+  total: number;
 }
