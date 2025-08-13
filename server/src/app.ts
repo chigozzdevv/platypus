@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import cron from 'node-cron';
 import { connectDB } from '@/shared/config/database';
 import { env, isDevelopment } from '@/shared/config/env';
 import { logger } from '@/shared/utils/logger';
@@ -84,6 +85,23 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 let dbConnected = false;
+let cronStarted = false;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const retryAsync = async (fn: () => Promise<void>, retries: number, delayMs: number) => {
+  let lastErr: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      await fn();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (i < retries - 1) await sleep(delayMs);
+    }
+  }
+  throw lastErr;
+};
 
 export const initializeApp = async (): Promise<void> => {
   if (!dbConnected) {
@@ -94,6 +112,49 @@ export const initializeApp = async (): Promise<void> => {
     } catch (error) {
       logger.error('Failed to connect to database', { error });
       throw error;
+    }
+  }
+
+  try {
+    const { campService } = await import('@/features/ip/camp.service');
+    await retryAsync(async () => {
+      await campService.ensurePlatformReady();
+      logger.info('Camp platform wallet ready');
+    }, 3, 2000);
+  } catch (error) {
+    logger.error('Camp platform wallet init failed', { error });
+  }
+
+  if (!cronStarted) {
+    const { signalsService } = await import('@/features/signals/signals.service');
+
+    cron.schedule('0 * * * *', async () => {
+      try {
+        logger.info('⏰ Starting platform signal generation...');
+        const signals = await signalsService.generatePlatformSignals(50);
+        logger.info('✅ Platform signals generated successfully', {
+          count: signals.length,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        logger.error('❌ Failed to generate platform signals', { error });
+      }
+    });
+
+    cronStarted = true;
+    logger.info('🕐 Platform signal generation cron job started (runs every hour)');
+
+    if (isDevelopment) {
+      logger.info('🚀 Running initial signal generation for development testing...');
+      try {
+        const signals = await signalsService.generatePlatformSignals(50);
+        logger.info('✅ Initial signal generation completed', {
+          count: signals.length,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        logger.error('❌ Initial signal generation failed', { error });
+      }
     }
   }
 };

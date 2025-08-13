@@ -29,8 +29,7 @@ class TradingService {
       }
       
       // Use public market data methods (no privateKey needed)
-      const platformKey: string | undefined = undefined;
-      const marketData = await this.getEnhancedMarketData(platformKey, symbol);
+      const marketData = await this.getEnhancedMarketData(privateKey, symbol);
       
       if (marketData.volume24h < 100000) {
         logger.warn(`Low volume warning for ${symbol}: ${marketData.volume24h.toLocaleString()}`);
@@ -41,7 +40,20 @@ class TradingService {
       }
       
       const fearGreedIndex = await this.getFearGreedIndex();
-      const patterns = await this.recognizePatterns(platformKey, symbol);
+      
+      // Make patterns optional - don't fail if patterns aren't available
+      let patterns: PatternRecognition;
+      try {
+        patterns = await this.recognizePatterns(privateKey, symbol);
+      } catch (error) {
+        logger.warn(`Pattern recognition failed for ${symbol}, using empty patterns`, { error });
+        // Create empty patterns object if pattern recognition fails
+        patterns = {
+          patterns: [],
+          overallSignal: "neutral" as const,
+          patternCount: { bearish: 0, bullish: 0, neutral: 0 },
+        };
+      }
       
       const prompt = this.buildAdvancedAnalysisPrompt(
         symbol,
@@ -67,7 +79,9 @@ class TradingService {
       
       const qualityScore = this.calculateSignalQuality(riskManagedSignal, marketData, patterns);
       
-      if (qualityScore.score < 60) {
+      // Different thresholds for platform vs user calls
+      const minQuality = privateKey ? 60 : 20; // Much lower for platform
+      if (qualityScore.score < minQuality) {
         throw new CustomError('SIGNAL_QUALITY_LOW', 400, 
           `Signal quality too low (${qualityScore.score}/100): ${qualityScore.reasons.join(', ')}`);
       }
@@ -517,7 +531,7 @@ class TradingService {
           
           const score = this.calculateAdvancedOpportunityScore(fullMarketData, fearGreedIndex);
           
-          if (score > 55) {
+          if (score > 40) { // Lowered threshold for more opportunities
             const setup = this.analyzeSetup(marketData.rsi, marketData.change24h, fearGreedIndex, marketData.winRate);
             
             opportunities.push({
@@ -708,36 +722,29 @@ class TradingService {
   private calculateAdvancedOpportunityScore(data: MarketData, fearGreedIndex: number): number {
     let score = 0;
     
-    // Win Rate (40% weight)
     const winRateScore = Math.min(data.winRate, 100);
-    score += winRateScore * 0.4;
+    score += winRateScore * 0.5;
     
-    // Sharpe Ratio (20% weight)
-    const sharpeScore = Math.max(0, Math.min(100, (data.sharpeRatio + 2) * 25));
-    score += sharpeScore * 0.2;
+    const sharpeScore = Math.max(25, Math.min(100, (data.sharpeRatio + 3) * 20));
+    score += sharpeScore * 0.15;
     
-    // Technical Momentum (20% weight)
-    let momentumScore = 50;
+    let momentumScore = 60;
     if (data.rsi > 70) momentumScore += 15;
     else if (data.rsi < 30) momentumScore += 20;
-    else if (data.rsi > 45 && data.rsi < 55) momentumScore -= 10;
+    else if (data.rsi > 45 && data.rsi < 55) momentumScore -= 5;
     
-    if (Math.abs(data.priceChange24h) > 5) momentumScore += 15;
+    if (Math.abs(data.priceChange24h) > 3) momentumScore += 10;
     score += Math.min(100, momentumScore) * 0.2;
     
-    // Volume & Liquidity (10% weight)
-    const volumeScore = Math.min(100, (data.volume24h / 1000000) * 10);
+    const volumeScore = Math.min(100, (data.volume24h / 500000) * 10);
     score += volumeScore * 0.1;
     
-    // Sentiment Divergence (10% weight)
-    let sentimentScore = 0;
-    if (fearGreedIndex > 75 && data.rsi > 65) sentimentScore = 80; // Contrarian short
-    else if (fearGreedIndex < 25 && data.rsi < 35) sentimentScore = 70; // Contrarian long
-    else if (Math.abs(fearGreedIndex - 50) > 20) sentimentScore = 30;
-    score += sentimentScore * 0.1;
+    let sentimentScore = 20;
+    if (fearGreedIndex > 75 && data.rsi > 65) sentimentScore = 80;
+    else if (fearGreedIndex < 25 && data.rsi < 35) sentimentScore = 70;
+    score += sentimentScore * 0.05;
     
-    // Risk penalty for high max drawdown
-    if (data.maxDrawdown > 50) score *= 0.8;
+    if (data.maxDrawdown > 70) score *= 0.9;
     
     return Math.max(0, Math.min(100, score));
   }

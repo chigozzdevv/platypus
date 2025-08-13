@@ -26,6 +26,8 @@ export interface IPAssetDocument extends Document {
     creator: string;
     originalSignalId?: string;
   };
+  fullSignalData: any;
+  improvementData?: any;
   totalSales: number;
   totalRevenue: number;
   isActive: boolean;
@@ -100,6 +102,14 @@ const IPAssetSchema = new Schema<IPAssetDocument>(
       },
       creator: { type: String, required: true },
       originalSignalId: String,
+    },
+    fullSignalData: {
+      type: Schema.Types.Mixed,
+      required: true,
+    },
+    improvementData: {
+      type: Schema.Types.Mixed,
+      default: null,
     },
     totalSales: {
       type: Number,

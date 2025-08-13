@@ -22,12 +22,12 @@ export interface ImproveSignalParams {
 
 class SignalsService {
   // Platform-level automated signal generation
-  async generatePlatformSignals(count: number = 50): Promise<SignalDocument[]> {
+  async generatePlatformSignals(count: number = 25): Promise<SignalDocument[]> {
     try {
       logger.info('Starting platform signal generation', { targetCount: count });
 
       const { opportunities } = await tradingService.findTopOpportunities(undefined, {
-        maxSymbols: 100,
+        maxSymbols: 50,
         minVolume: 1000000,
         topCount: count
       });
