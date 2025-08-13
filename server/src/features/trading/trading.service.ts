@@ -8,12 +8,12 @@ class TradingService {
   async generateTradingSignal(
     symbol: string,
     accountBalance?: number,
-    privateKey?: string, 
+    privateKey?: string,
     historicalPerformance?: HistoricalPerformance
   ): Promise<TradingSignal> {
     try {
 
-      const defaultBalance = accountBalance || 10000; // Platform reference balance
+      const defaultBalance = accountBalance || 10000;
       const client = privateKey ? hyperliquidService.getOrCreateClient(privateKey) : hyperliquidService.createClient();
       
       const allMids = await client.info.getAllMids();
@@ -28,8 +28,7 @@ class TradingService {
         throw new CustomError('INVALID_SYMBOL', 400, `Symbol ${symbol} is not valid for trading`);
       }
       
-      // Use public market data methods (no privateKey needed)
-      const marketData = await this.getEnhancedMarketData(privateKey, symbol);
+      const marketData = await this.getEnhancedMarketData(undefined, symbol);
       
       if (marketData.volume24h < 100000) {
         logger.warn(`Low volume warning for ${symbol}: ${marketData.volume24h.toLocaleString()}`);
@@ -40,25 +39,12 @@ class TradingService {
       }
       
       const fearGreedIndex = await this.getFearGreedIndex();
-      
-      // Make patterns optional - don't fail if patterns aren't available
-      let patterns: PatternRecognition;
-      try {
-        patterns = await this.recognizePatterns(privateKey, symbol);
-      } catch (error) {
-        logger.warn(`Pattern recognition failed for ${symbol}, using empty patterns`, { error });
-        // Create empty patterns object if pattern recognition fails
-        patterns = {
-          patterns: [],
-          overallSignal: "neutral" as const,
-          patternCount: { bearish: 0, bullish: 0, neutral: 0 },
-        };
-      }
+      const patterns = await this.recognizePatterns(undefined, symbol);
       
       const prompt = this.buildAdvancedAnalysisPrompt(
         symbol,
         marketData,
-        defaultBalance, // Use defaultBalance instead of accountBalance
+        defaultBalance,
         fearGreedIndex,
         patterns,
         historicalPerformance
@@ -74,14 +60,11 @@ class TradingService {
         0.1
       );
 
-      // Apply risk management to signal levels (not position sizing)
       const riskManagedSignal = this.applySignalRiskManagement(analysis.signal, marketData);
       
       const qualityScore = this.calculateSignalQuality(riskManagedSignal, marketData, patterns);
       
-      // Different thresholds for platform vs user calls
-      const minQuality = privateKey ? 60 : 20; // Much lower for platform
-      if (qualityScore.score < minQuality) {
+      if (qualityScore.score < 40) {
         throw new CustomError('SIGNAL_QUALITY_LOW', 400, 
           `Signal quality too low (${qualityScore.score}/100): ${qualityScore.reasons.join(', ')}`);
       }
@@ -97,7 +80,7 @@ class TradingService {
         winRate: marketData.winRate,
         confidence: finalSignal.confidence,
         side: finalSignal.side,
-        platform: !privateKey, // Log if this is a platform-generated signal
+        platform: !privateKey,
       });
 
       return {
@@ -530,8 +513,9 @@ class TradingService {
           };
           
           const score = this.calculateAdvancedOpportunityScore(fullMarketData, fearGreedIndex);
-          
-          if (score > 40) { // Lowered threshold for more opportunities
+
+
+          if (score > 40) {
             const setup = this.analyzeSetup(marketData.rsi, marketData.change24h, fearGreedIndex, marketData.winRate);
             
             opportunities.push({
@@ -554,7 +538,6 @@ class TradingService {
         }
       }
       
-      // Sort by win rate first, then by score - WIN RATE IS KING!
       opportunities.sort((a, b) => {
         const winRateDiff = b.winRate - a.winRate;
         return Math.abs(winRateDiff) > 5 ? winRateDiff : b.score - a.score;
@@ -659,7 +642,7 @@ class TradingService {
   }
 
   private async getEnhancedMarketData(privateKey: string | undefined, coin: string): Promise<MarketData> {
-    const client = privateKey ? hyperliquidService.getOrCreateClient(privateKey) : hyperliquidService.createClient();
+    const client = hyperliquidService.getOrCreateClient(privateKey);
     const marketData = await hyperliquidService.getEnhancedMarketData(client, coin);
 
     return {
@@ -680,7 +663,7 @@ class TradingService {
   }
 
   private async recognizePatterns(privateKey: string | undefined, symbol: string): Promise<PatternRecognition> {
-    const client = privateKey ? hyperliquidService.getOrCreateClient(privateKey) : hyperliquidService.createClient();
+    const client = hyperliquidService.getOrCreateClient(privateKey);
     const coin = hyperliquidService.getApiCoin(symbol);
     const patterns: PatternRecognition['patterns'] = [];
     const timeframes = ["1h", "4h"];
@@ -722,29 +705,36 @@ class TradingService {
   private calculateAdvancedOpportunityScore(data: MarketData, fearGreedIndex: number): number {
     let score = 0;
     
+    // Win Rate (40% weight)
     const winRateScore = Math.min(data.winRate, 100);
-    score += winRateScore * 0.5;
+    score += winRateScore * 0.4;
     
-    const sharpeScore = Math.max(25, Math.min(100, (data.sharpeRatio + 3) * 20));
-    score += sharpeScore * 0.15;
+    // Sharpe Ratio (20% weight)
+    const sharpeScore = Math.max(0, Math.min(100, (data.sharpeRatio + 2) * 25));
+    score += sharpeScore * 0.2;
     
-    let momentumScore = 60;
+    // Technical Momentum (20% weight)
+    let momentumScore = 50;
     if (data.rsi > 70) momentumScore += 15;
     else if (data.rsi < 30) momentumScore += 20;
-    else if (data.rsi > 45 && data.rsi < 55) momentumScore -= 5;
+    else if (data.rsi > 45 && data.rsi < 55) momentumScore -= 10;
     
-    if (Math.abs(data.priceChange24h) > 3) momentumScore += 10;
+    if (Math.abs(data.priceChange24h) > 5) momentumScore += 15;
     score += Math.min(100, momentumScore) * 0.2;
     
-    const volumeScore = Math.min(100, (data.volume24h / 500000) * 10);
+    // Volume & Liquidity (10% weight)
+    const volumeScore = Math.min(100, (data.volume24h / 1000000) * 10);
     score += volumeScore * 0.1;
     
-    let sentimentScore = 20;
-    if (fearGreedIndex > 75 && data.rsi > 65) sentimentScore = 80;
-    else if (fearGreedIndex < 25 && data.rsi < 35) sentimentScore = 70;
-    score += sentimentScore * 0.05;
+    // Sentiment Divergence (10% weight)
+    let sentimentScore = 0;
+    if (fearGreedIndex > 75 && data.rsi > 65) sentimentScore = 80; // Contrarian short
+    else if (fearGreedIndex < 25 && data.rsi < 35) sentimentScore = 70; // Contrarian long
+    else if (Math.abs(fearGreedIndex - 50) > 20) sentimentScore = 30;
+    score += sentimentScore * 0.1;
     
-    if (data.maxDrawdown > 70) score *= 0.9;
+    // Risk penalty for high max drawdown
+    if (data.maxDrawdown > 50) score *= 0.8;
     
     return Math.max(0, Math.min(100, score));
   }
@@ -938,7 +928,7 @@ REMEMBER: This is a GENERIC signal for multiple users. Focus on precise entry/ex
   }
 
   private preciseCalculation(value: number): number {
-    // Round to 8 decimal places to avoid floating point errors
+
     return Math.round(value * 100000000) / 100000000;
   }
 
@@ -1096,7 +1086,7 @@ REMEMBER: This is a GENERIC signal for multiple users. Focus on precise entry/ex
     
     return {
       score: Math.round(finalScore),
-      reasons: reasons.slice(0, 5) // Keep top 5 most important reasons
+      reasons: reasons.slice(0, 5)
     };
   }
 
