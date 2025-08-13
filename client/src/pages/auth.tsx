@@ -23,10 +23,8 @@ export default function Auth() {
         >
           <h1 className="text-3xl font-bold mb-4">Welcome to Platypus</h1>
           <p className="text-neutral-600 mb-8">
-            Connect your wallet to start trading with AI-enhanced signals and 
-            earn from your trading expertise.
+            Connect your wallet to access the platform and start trading.
           </p>
-          
           <AuthModal />
         </motion.div>
       </div>

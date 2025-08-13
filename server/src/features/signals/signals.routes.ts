@@ -1,4 +1,3 @@
-// signals/signals.routes.ts
 import { Router } from 'express';
 import { signalsController } from './signals.controller';
 import { authMiddleware, adminMiddleware } from '@/shared/middleware/auth.middleware';
@@ -46,77 +45,29 @@ const improvementIndexSchema = z.object({
   improvementIndex: z.string().regex(/^\d+$/, 'Invalid improvement index'),
 });
 
-// Public routes
 router.get('/public', signalsController.getPublicSignals);
 router.get('/improvable', signalsController.getImprovableSignals);
 router.get('/search', signalsController.searchSignals);
 router.get('/:signalId', validateParams(signalIdSchema), signalsController.getSignal);
 
-// Protected routes
 router.use(authMiddleware);
 
-router.post(
-  '/',
-  validateBody(createSignalSchema),
-  signalsController.createSignal
-);
-
+router.post('/', validateBody(createSignalSchema), signalsController.createSignal);
 router.get('/user/signals', signalsController.getUserSignals);
 router.get('/user/stats', signalsController.getUserStats);
 
-router.post(
-  '/:signalId/improve',
-  validateParams(signalIdSchema),
-  validateBody(improveSignalSchema),
-  signalsController.improveSignal
-);
+router.post('/:signalId/improve', validateParams(signalIdSchema), validateBody(improveSignalSchema), signalsController.improveSignal);
+router.put('/:signalId/performance', validateParams(signalIdSchema), validateBody(updatePerformanceSchema), signalsController.updatePerformance);
+router.put('/:signalId/mark-minted', validateParams(signalIdSchema), validateBody(markMintedSchema), signalsController.markSignalMinted);
+router.put('/:signalId/improvements/:improvementIndex/mark-minted', validateParams(improvementIndexSchema), validateBody(markMintedSchema), signalsController.markImprovementMinted);
 
-router.put(
-  '/:signalId/performance',
-  validateParams(signalIdSchema),
-  validateBody(updatePerformanceSchema),
-  signalsController.updatePerformance
-);
-
-router.put(
-  '/:signalId/mark-minted',
-  validateParams(signalIdSchema),
-  validateBody(markMintedSchema),
-  signalsController.markSignalMinted
-);
-
-router.put(
-  '/:signalId/improvements/:improvementIndex/mark-minted',
-  validateParams(improvementIndexSchema),
-  validateBody(markMintedSchema),
-  signalsController.markImprovementMinted
-);
-
-// Admin only routes
 router.use(adminMiddleware);
 
-router.post(
-  '/admin/generate-platform',
-  validateBody(z.object({ count: z.number().min(1).max(100).default(25) })),
-  signalsController.generatePlatformSignals
-);
-
+router.post('/admin/generate-platform', validateBody(z.object({ count: z.number().min(1).max(100).default(25) })), signalsController.generatePlatformSignals);
 router.get('/admin/pending', signalsController.getSignalsForReview);
-
-router.put(
-  '/admin/:signalId/approve',
-  validateParams(signalIdSchema),
-  validateBody(adminNotesSchema),
-  signalsController.approveSignal
-);
-
-router.put(
-  '/admin/:signalId/reject',
-  validateParams(signalIdSchema),
-  validateBody(adminNotesSchema),
-  signalsController.rejectSignal
-);
-
+router.get('/admin/approved', signalsController.getApprovedForMinting);
+router.put('/admin/:signalId/approve', validateParams(signalIdSchema), validateBody(adminNotesSchema), signalsController.approveSignal);
+router.put('/admin/:signalId/reject', validateParams(signalIdSchema), validateBody(adminNotesSchema), signalsController.rejectSignal);
 router.post('/expire', signalsController.expireSignals);
 
 export default router;

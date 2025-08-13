@@ -1,24 +1,19 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Store, Radio, DollarSign, TrendingUp, BarChart3 } from 'lucide-react';
+import { ShieldCheck, ListChecks } from 'lucide-react';
 
 interface NavigationProps {
   isMobileMenuOpen: boolean;
   setIsMobileMenuOpen: (open: boolean) => void;
 }
 
-export default function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }: NavigationProps) {
+export default function AdminNavigation({ isMobileMenuOpen, setIsMobileMenuOpen }: NavigationProps) {
   const location = useLocation();
-  const isActive = (path: string) =>
-    location.pathname === path ||
-    (path === '/dashboard' && (location.pathname === '/dashboard' || location.pathname === '/dashboard/overview'));
+
+  const isActive = (path: string) => location.pathname === path;
 
   const navItems = [
-    { path: '/dashboard', label: 'Overview', icon: Home },
-    { path: '/dashboard/marketplace', label: 'Marketplace', icon: Store },
-    { path: '/dashboard/signals', label: 'Signals', icon: Radio },
-    { path: '/dashboard/trades', label: 'Trades', icon: BarChart3 },
-    { path: '/dashboard/royalties', label: 'Royalties', icon: DollarSign },
-    { path: '/dashboard/my-signals', label: 'My Signals', icon: TrendingUp },
+    { path: '/admin/dashboard', label: 'Admin Dashboard', icon: ShieldCheck },
+    { path: '/admin/dashboard', label: 'Signals Review', icon: ListChecks },
   ];
 
   return (
@@ -28,7 +23,7 @@ export default function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }: Na
           <div className="space-y-2">
             {navItems.map((item) => (
               <Link
-                key={item.path}
+                key={item.label}
                 to={item.path}
                 className={`relative flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group ${
                   isActive(item.path)
@@ -38,26 +33,20 @@ export default function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }: Na
               >
                 <div
                   className={`p-2 rounded-lg mr-4 transition-colors ${
-                    isActive(item.path)
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'bg-neutral-100 text-neutral-500 group-hover:bg-neutral-200 group-hover:text-neutral-600'
+                    isActive(item.path) ? 'bg-blue-100 text-blue-600' : 'bg-neutral-100 text-neutral-500 group-hover:bg-neutral-200 group-hover:text-neutral-600'
                   }`}
                 >
                   <item.icon className="w-5 h-5" />
                 </div>
                 <span className="flex-1">{item.label}</span>
-                {isActive(item.path) && (
-                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full" />
-                )}
+                {isActive(item.path) && <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full"></div>}
               </Link>
             ))}
           </div>
         </nav>
       </div>
 
-      {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-black bg-opacity-50" onClick={() => setIsMobileMenuOpen(false)} />
-      )}
+      {isMobileMenuOpen && <div className="md:hidden fixed inset-0 z-40 bg-black bg-opacity-50" onClick={() => setIsMobileMenuOpen(false)} />}
 
       <div
         className={`md:hidden fixed left-0 top-16 bottom-0 w-64 bg-white border-r border-neutral-200 z-50 transform transition-transform duration-300 ease-in-out ${
@@ -68,7 +57,7 @@ export default function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }: Na
           <div className="space-y-2">
             {navItems.map((item) => (
               <Link
-                key={`mobile-${item.path}`}
+                key={`mobile-${item.label}`}
                 to={item.path}
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={`relative flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group ${
@@ -79,17 +68,13 @@ export default function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }: Na
               >
                 <div
                   className={`p-2 rounded-lg mr-4 transition-colors ${
-                    isActive(item.path)
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'bg-neutral-100 text-neutral-500 group-hover:bg-neutral-200 group-hover:text-neutral-600'
+                    isActive(item.path) ? 'bg-blue-100 text-blue-600' : 'bg-neutral-100 text-neutral-500 group-hover:bg-neutral-200 group-hover:text-neutral-600'
                   }`}
                 >
                   <item.icon className="w-5 h-5" />
                 </div>
                 <span className="flex-1">{item.label}</span>
-                {isActive(item.path) && (
-                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full" />
-                )}
+                {isActive(item.path) && <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full"></div>}
               </Link>
             ))}
           </div>

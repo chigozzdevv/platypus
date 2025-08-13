@@ -15,60 +15,91 @@ import Royalties from './pages/dashboard/royalties';
 import MySignals from './pages/dashboard/my-signals';
 import Profile from './pages/dashboard/profile';
 import Settings from './pages/dashboard/settings';
+import AdminLayout from './components/admin-layout';
+import AdminDashboard from './pages/dashboard/admin';
+import AuthSync from './components/auth-sync';
 
 const queryClient = new QueryClient();
 
-function App() {
-  const { isAuthenticated, token, loadUser } = useAuthStore();
+function AppRoutes() {
+  const { isAuthenticated, isAdmin, token, loadUser } = useAuthStore();
 
   useEffect(() => {
-    if (token && !isAuthenticated) {
-      loadUser();
-    }
+    if (token && !isAuthenticated) loadUser();
   }, [token, isAuthenticated, loadUser]);
 
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route
+        path="/auth"
+        element={
+          isAuthenticated ? (
+            <Navigate to={isAdmin ? '/admin/dashboard' : '/dashboard'} replace />
+          ) : (
+            <Auth />
+          )
+        }
+      />
+
+      <Route
+        path="/dashboard/*"
+        element={
+          isAuthenticated && !isAdmin ? (
+            <DashboardLayout>
+              <Routes>
+                <Route path="/" element={<Overview />} />
+                <Route path="overview" element={<Overview />} />
+                <Route path="marketplace" element={<Marketplace />} />
+                <Route path="signals" element={<Signals />} />
+                <Route path="trades" element={<Trades />} />
+                <Route path="royalties" element={<Royalties />} />
+                <Route path="my-signals" element={<MySignals />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="settings" element={<Settings />} />
+              </Routes>
+            </DashboardLayout>
+          ) : isAuthenticated && isAdmin ? (
+            <Navigate to="/admin/dashboard" replace />
+          ) : (
+            <Navigate to="/auth" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/admin/*"
+        element={
+          isAuthenticated && isAdmin ? (
+            <AdminLayout>
+              <Routes>
+                <Route path="dashboard" element={<AdminDashboard />} />
+              </Routes>
+            </AdminLayout>
+          ) : isAuthenticated ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <Navigate to="/auth" replace />
+          )
+        }
+      />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <CampProvider clientId={import.meta.env.VITE_CAMP_CLIENT_ID}>
           <Router>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route 
-              path="/auth" 
-              element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Auth />} 
-            />
-            
-            <Route 
-              path="/dashboard/*" 
-              element={
-                isAuthenticated ? (
-                  <DashboardLayout>
-                    <Routes>
-                      <Route path="/" element={<Overview />} />
-                      <Route path="/overview" element={<Overview />} />
-                      <Route path="/marketplace" element={<Marketplace />} />
-                      <Route path="/signals" element={<Signals />} />
-                      <Route path="/trades" element={<Trades />} />
-                      <Route path="/royalties" element={<Royalties />} />
-                      <Route path="/my-signals" element={<MySignals />} />
-                      <Route path="/profile" element={<Profile />} />
-                      <Route path="/settings" element={<Settings />} />
-                    </Routes>
-                  </DashboardLayout>
-                ) : (
-                  <Navigate to="/auth" replace />
-                )
-              } 
-            />
-            
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Router>
-      </CampProvider>
+            <AuthSync />
+            <AppRoutes />
+          </Router>
+        </CampProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );
 }
-
-export default App;

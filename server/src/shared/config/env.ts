@@ -12,11 +12,14 @@ const envSchema = z.object({
   CAMP_CLIENT_ID: z.string(),
   ORIGIN_CLIENT_ID: z.string().optional(),
   ORIGIN_API_URL: z.string().optional(),
+  ORIGIN_ISSUER: z.string().default('https://api.origin.campnetwork.xyz'),
+  ORIGIN_JWKS_URL: z.string().default('https://api.origin.campnetwork.xyz/.well-known/jwks'),
+  CAMP_TRUST_JWT: z.enum(['true', 'false']).transform(v => v === 'true').default('false'),
   SIWE_DOMAIN: z
     .string()
     .default('localhost:5173')
     .refine(
-      (v) =>
+      v =>
         !!v &&
         !v.startsWith('http://') &&
         !v.startsWith('https://') &&
@@ -44,7 +47,7 @@ const parseEnv = () => {
   } catch (error) {
     console.error('L Environment validation failed:');
     if (error instanceof z.ZodError) {
-      error.errors.forEach((err) => {
+      error.errors.forEach(err => {
         console.error(`  - ${err.path.join('.')}: ${err.message}`);
       });
     }

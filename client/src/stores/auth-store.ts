@@ -11,7 +11,7 @@ interface AuthState {
   isLoading: boolean;
   setUser: (user: User | null) => void;
   setToken: (token: string | null) => void;
-  login: (walletAddress: string, campJWT?: string) => Promise<void>;
+  login: (walletAddress: string, campJWT: string) => Promise<{ isAdmin: boolean }>;
   logout: () => void;
   loadUser: () => Promise<void>;
 }
@@ -24,11 +24,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAdmin: false,
   isLoading: false,
 
-  setUser: (user) => set({ 
-    user, 
-    isAuthenticated: !!user,
-    isAdmin: user?.userType === 'admin'
-  }),
+  setUser: (user) =>
+    set({
+      user,
+      isAuthenticated: !!user,
+      isAdmin: user?.userType === 'admin',
+    }),
 
   setToken: (token) => {
     set({ token, isAuthenticated: !!token });
@@ -39,7 +40,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  login: async (walletAddress: string, campJWT?: string) => {
+  login: async (walletAddress: string, campJWT: string) => {
     set({ isLoading: true });
     try {
       const response = await authService.connect({
@@ -49,18 +50,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         originJWT: campJWT,
       });
 
+      const isAdmin = response.user.userType === 'admin';
+
       set({
         user: response.user,
         token: response.token,
-        campJWT: campJWT || null,
+        campJWT,
         isAuthenticated: true,
-        isAdmin: response.user.userType === 'admin',
+        isAdmin,
         isLoading: false,
       });
 
-      if (campJWT) {
-        localStorage.setItem('camp_jwt', campJWT);
-      }
+      localStorage.setItem('camp_jwt', campJWT);
+      localStorage.setItem('auth_token', response.token);
+
+      return { isAdmin };
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -68,7 +72,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
-    authService.logout();
     set({
       user: null,
       token: null,
@@ -76,23 +79,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isAuthenticated: false,
       isAdmin: false,
     });
+
     localStorage.removeItem('camp_jwt');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('camp_auth');
+
+    authService.logout();
   },
 
   loadUser: async () => {
     const token = get().token;
     if (!token) return;
-
     set({ isLoading: true });
     try {
       const user = await authService.getProfile();
-      set({ 
-        user, 
+      set({
+        user,
         isLoading: false,
-        isAdmin: user.userType === 'admin'
+        isAdmin: user.userType === 'admin',
+        isAuthenticated: true,
       });
-    } catch (error) {
-      console.error('Failed to load user:', error);
+    } catch {
       get().logout();
       set({ isLoading: false });
     }
