@@ -10,28 +10,13 @@ export class SignalsController {
     const authReq = req as AuthenticatedRequest;
     const userId = authReq.user.id;
     const { symbol, aiModel, accountBalance } = req.body;
-
     const signal = await signalsService.createAISignal(userId, {
       symbol,
       aiModel: aiModel || 'gpt-4o-mini',
-      accountBalance
+      accountBalance,
     });
-
-    sendSuccess(
-      res,
-      {
-        signal: signal.toJSON(),
-        message: 'AI trading signal generated successfully'
-      },
-      201
-    );
-
-    logger.info('Signal created', {
-      userId,
-      signalId: signal._id,
-      symbol,
-      confidence: signal.confidence
-    });
+    sendSuccess(res, { signal: signal.toJSON(), message: 'AI trading signal generated successfully' }, 201);
+    logger.info('Signal created', { userId, signalId: signal._id, symbol, confidence: signal.confidence });
   });
 
   getSignal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
@@ -47,46 +32,41 @@ export class SignalsController {
   getUserSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const authReq = req as AuthenticatedRequest;
     const userId = authReq.user.id;
-
     const { status, symbol, outcome, limit = '20', offset = '0' } = req.query;
-
     const result = await signalsService.getUserSignals(userId, {
       status: status as string,
       symbol: symbol as string,
       outcome: outcome as string,
       limit: parseInt(limit as string),
-      offset: parseInt(offset as string)
+      offset: parseInt(offset as string),
     });
-
     sendSuccess(res, {
       signals: result.signals.map(s => s.toJSON()),
       total: result.total,
       pagination: {
         limit: parseInt(limit as string),
         offset: parseInt(offset as string),
-        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string)
+        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string),
       }
     });
   });
 
   getPublicSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { symbol, minConfidence, sortBy = 'newest', limit = '20', offset = '0' } = req.query;
-
     const result = await signalsService.getPublicSignals({
       symbol: symbol as string,
       minConfidence: minConfidence ? parseInt(minConfidence as string) : undefined,
       sortBy: sortBy as 'newest' | 'confidence' | 'performance' | 'usage',
       limit: parseInt(limit as string),
-      offset: parseInt(offset as string)
+      offset: parseInt(offset as string),
     });
-
     sendSuccess(res, {
       signals: result.signals.map(s => s.toJSON()),
       total: result.total,
       pagination: {
         limit: parseInt(limit as string),
         offset: parseInt(offset as string),
-        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string)
+        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string),
       }
     });
   });
@@ -96,84 +76,61 @@ export class SignalsController {
     const userId = authReq.user.id;
     const { signalId } = req.params;
     const { improvementType, originalValue, improvedValue, reasoning, newExpiryTime } = req.body;
-
     const signal = await signalsService.improveSignal(signalId, userId, {
       improvementType,
       originalValue,
       improvedValue,
       reasoning,
-      newExpiryTime: newExpiryTime ? new Date(newExpiryTime) : undefined
+      newExpiryTime: newExpiryTime ? new Date(newExpiryTime) : undefined,
     });
-
-    sendSuccess(res, {
-      signal: signal.toJSON(),
-      message: 'Signal improvement added successfully'
-    });
-
+    sendSuccess(res, { signal: signal.toJSON(), message: 'Signal improvement added successfully' });
     logger.info('Signal improved', { signalId, userId, improvementType });
   });
 
   updatePerformance = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId } = req.params;
     const { outcome, actualReturn, executionPrice, exitPrice, exitReason } = req.body;
-
     const signal = await signalsService.updateSignalPerformance(signalId, {
       outcome,
       actualReturn,
       executionPrice,
       exitPrice,
-      exitReason
+      exitReason,
     });
-
-    sendSuccess(res, {
-      signal: signal.toJSON(),
-      message: 'Signal performance updated successfully'
-    });
-
+    sendSuccess(res, { signal: signal.toJSON(), message: 'Signal performance updated successfully' });
     logger.info('Signal performance updated', { signalId, outcome, actualReturn });
   });
 
   generatePlatformSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { count = 25 } = req.body;
     const signals = await signalsService.generatePlatformSignals(count);
-
-    sendSuccess(
-      res,
-      {
-        signals: signals.map(s => s.toJSON()),
-        generated: signals.length,
-        message: `Generated ${signals.length} platform signals`
-      },
-      201
-    );
-
+    sendSuccess(res, {
+      signals: signals.map(s => s.toJSON()),
+      generated: signals.length,
+      message: `Generated ${signals.length} platform signals`
+    }, 201);
     logger.info('Platform signals generated by admin', { count: signals.length, requested: count });
   });
 
   getUserStats = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const authReq = req as AuthenticatedRequest;
     const userId = authReq.user.id;
-
     const stats = await signalsService.getUserPerformanceStats(userId);
-
     sendSuccess(res, { stats, message: 'User performance statistics retrieved' });
   });
 
   searchSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { q: query, symbol, minConfidence, limit = '20', offset = '0' } = req.query;
-
     if (!query || typeof query !== 'string') {
       sendError(res, 'MISSING_QUERY', 'Search query is required', 400);
       return;
     }
-
     const result = await signalsService.searchSignals(query, {
       symbol: symbol as string,
       minConfidence: minConfidence ? parseInt(minConfidence as string) : undefined,
       limit: parseInt(limit as string),
-      offset: parseInt(offset as string)
+      offset: parseInt(offset as string),
     });
-
     sendSuccess(res, {
       signals: result.signals.map(s => s.toJSON()),
       total: result.total,
@@ -181,41 +138,54 @@ export class SignalsController {
       pagination: {
         limit: parseInt(limit as string),
         offset: parseInt(offset as string),
-        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string)
+        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string),
       }
     });
   });
 
+  getApprovedForMinting = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { symbol, aiModel, sortBy = 'newest', limit = '50', offset = '0' } = req.query;
+
+    const result = await signalsService.getAllSignalsForAdmin({
+      adminStatus: 'approved_for_minting',
+      symbol: symbol as string,
+      aiModel: aiModel as string,
+      sortBy: sortBy as string,       // 'newest' | 'confidence' | 'oldest'
+      limit: Number(limit),
+      offset: Number(offset),
+    });
+
+    sendSuccess(res, result);
+  });
+
+
   getImprovableSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { symbol, minConfidence, sortBy = 'newest', limit = '20', offset = '0' } = req.query;
-
     const result = await signalsService.getImprovableSignals({
       symbol: symbol as string,
       minConfidence: minConfidence ? parseInt(minConfidence as string) : undefined,
       sortBy: sortBy as 'newest' | 'confidence' | 'performance',
       limit: parseInt(limit as string),
-      offset: parseInt(offset as string)
+      offset: parseInt(offset as string),
     });
-
     sendSuccess(res, {
       signals: result.signals.map(s => s.toJSON()),
       total: result.total,
       pagination: {
         limit: parseInt(limit as string),
         offset: parseInt(offset as string),
-        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string)
+        hasMore: result.total > parseInt(offset as string) + parseInt(limit as string),
       }
     });
   });
 
-  expireSignals = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  expireSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     await signalsService.expireOldSignals();
     sendSuccess(res, { message: 'Expired signals processed successfully' });
   });
 
   getSignalsForReview = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { minConfidence, maxAge, symbol, aiModel, sortBy = 'confidence', limit = 50 } = req.query;
-
     const result = await signalsService.getSignalsForAdminReview({
       minConfidence: minConfidence ? Number(minConfidence) : undefined,
       maxAge: maxAge ? Number(maxAge) : undefined,
@@ -224,31 +194,13 @@ export class SignalsController {
       sortBy: sortBy as string,
       limit: Number(limit)
     });
-
-    sendSuccess(res, { signals: result.signals.map(s => s.toJSON()), total: result.total });
-  });
-
-  getApprovedForMinting = asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { symbol, aiModel, sortBy = 'newest', limit = '50', offset = '0' } = req.query as Record<string, string>;
-
-    const result = await signalsService.getAllSignalsForAdmin({
-      adminStatus: 'approved_for_minting',
-      symbol,
-      aiModel,
-      sortBy,
-      limit: Number(limit),
-      offset: Number(offset)
-    });
-
-    sendSuccess(res, { signals: result.signals.map(s => s.toJSON()), total: result.total });
+    sendSuccess(res, result);
   });
 
   approveSignal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId } = req.params;
     const { adminNotes } = req.body;
-
     const signal = await signalsService.updateSignalAdminStatus(signalId, 'approved_for_minting', adminNotes);
-
     sendSuccess(res, { signal, message: 'Signal approved for minting' });
     logger.info('Signal approved by admin', { signalId });
   });
@@ -256,9 +208,7 @@ export class SignalsController {
   rejectSignal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId } = req.params;
     const { adminNotes } = req.body;
-
     const signal = await signalsService.updateSignalAdminStatus(signalId, 'rejected', adminNotes);
-
     sendSuccess(res, { signal, message: 'Signal rejected' });
     logger.info('Signal rejected by admin', { signalId });
   });
@@ -266,9 +216,7 @@ export class SignalsController {
   markSignalMinted = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId } = req.params;
     const { tokenId, transactionHash } = req.body;
-
     const signal = await signalsService.markSignalMinted(signalId, { tokenId, transactionHash });
-
     sendSuccess(res, { signal, message: 'Signal marked as minted' });
     logger.info('Signal minted', { signalId, tokenId });
   });
@@ -276,15 +224,11 @@ export class SignalsController {
   markImprovementMinted = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId, improvementIndex } = req.params;
     const { tokenId, transactionHash } = req.body;
-
-    const signal = await signalsService.markImprovementMinted(signalId, parseInt(improvementIndex), {
-      tokenId,
-      transactionHash
-    });
-
+    const signal = await signalsService.markImprovementMinted(signalId, parseInt(improvementIndex), { tokenId, transactionHash });
     sendSuccess(res, { signal, message: 'Improvement marked as minted' });
     logger.info('Improvement minted', { signalId, improvementIndex, tokenId });
   });
+
 }
 
 export const signalsController = new SignalsController();

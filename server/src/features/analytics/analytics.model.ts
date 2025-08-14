@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface AnalyticsSnapshot extends Document {
-  type: 'overview' | 'signals' | 'trading' | 'users' | 'ip' | 'detailed';
+  type: 'overview' | 'signals' | 'trading' | 'users' | 'ip' | 'detailed' | 'admin';
   timeframe: '24h' | '7d' | '30d' | '90d' | '1y' | 'all';
   data: Record<string, any>;
   computedAt: Date;
@@ -12,7 +12,7 @@ const AnalyticsSnapshotSchema = new Schema<AnalyticsSnapshot>(
   {
     type: {
       type: String,
-      enum: ['overview', 'signals', 'trading', 'users', 'ip', 'detailed'],
+      enum: ['overview', 'signals', 'trading', 'users', 'ip', 'detailed', 'admin'],
       required: true,
     },
     timeframe: {
@@ -31,15 +31,15 @@ const AnalyticsSnapshotSchema = new Schema<AnalyticsSnapshot>(
     validUntil: {
       type: Date,
       required: true,
-      index: { expireAfterSeconds: 0 }
-    }
+      index: { expireAfterSeconds: 0 },
+    },
   },
   {
     timestamps: false,
     toJSON: {
       transform: (doc, ret) => {
         const { _id, __v, ...cleanRet } = ret;
-        cleanRet.id = _id;
+        (cleanRet as any).id = _id;
         return cleanRet;
       },
     },
@@ -49,4 +49,7 @@ const AnalyticsSnapshotSchema = new Schema<AnalyticsSnapshot>(
 AnalyticsSnapshotSchema.index({ type: 1, timeframe: 1 }, { unique: true });
 AnalyticsSnapshotSchema.index({ validUntil: 1 });
 
-export const AnalyticsSnapshot = mongoose.model<AnalyticsSnapshot>('AnalyticsSnapshot', AnalyticsSnapshotSchema);
+export const AnalyticsSnapshot = mongoose.model<AnalyticsSnapshot>(
+  'AnalyticsSnapshot',
+  AnalyticsSnapshotSchema
+);

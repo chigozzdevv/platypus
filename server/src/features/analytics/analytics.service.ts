@@ -75,6 +75,38 @@ export interface DetailedAnalytics {
 }
 
 class AnalyticsService {
+  /** Admin-only mini overview for dashboard cards (cached 5m). */
+  async getAdminOverview(): Promise<{
+    totalSignals: number;
+    totalImprovements: number;
+    totalRevenue: number;
+    activeUsers: number;
+  }> {
+    return this.getOrComputeAnalytics('admin', 'all', async () => {
+      const [totalSignals, totalRevenueAgg, activeUsers, improvementsAgg] = await Promise.all([
+        Signal.countDocuments({}),
+        IPAsset.aggregate([{ $group: { _id: null, totalRevenue: { $sum: '$totalRevenue' } } }]),
+        // Distinct creators (exclude 'platform' sentinel)
+        Signal.distinct('creator', { creator: { $ne: 'platform' } }).then(ids => ids.length),
+        Signal.aggregate([
+          { $project: { improvements: 1 } },
+          { $unwind: '$improvements' },
+          { $count: 'count' },
+        ]),
+      ]);
+
+      const totalRevenue = totalRevenueAgg?.[0]?.totalRevenue ?? 0;
+      const totalImprovements = improvementsAgg?.[0]?.count ?? 0;
+
+      return {
+        totalSignals,
+        totalImprovements,
+        totalRevenue,
+        activeUsers,
+      };
+    }, 300);
+  }
+
   async getPlatformOverview(): Promise<PlatformOverview> {
     return this.getOrComputeAnalytics('overview', 'all', async () => {
       const [
@@ -86,7 +118,7 @@ class AnalyticsService {
         revenueResult,
         signalStats,
         topSymbol,
-        topUser
+        topUser,
       ] = await Promise.all([
         Signal.countDocuments(),
         Trade.countDocuments(),
@@ -96,7 +128,7 @@ class AnalyticsService {
         this.getTotalRevenue(),
         this.getSignalAccuracy(),
         this.getMostTradedSymbol(),
-        this.getTopPerformer()
+        this.getTopPerformer(),
       ]);
 
       return {
@@ -108,15 +140,15 @@ class AnalyticsService {
         totalRevenue: revenueResult,
         avgSignalAccuracy: signalStats,
         mostTradedSymbol: topSymbol,
-        topPerformer: topUser
+        topPerformer: topUser,
       };
-    }, 600); // Cache for 10 minutes
+    }, 600);
   }
 
   async getSignalAnalytics(timeframe?: string): Promise<SignalAnalytics> {
     return this.getOrComputeAnalytics('signals', timeframe, async () => {
       const timeFilter = this.getTimeFilter(timeframe);
-      
+
       const [
         totalSignals,
         signalStats,
@@ -124,7 +156,7 @@ class AnalyticsService {
         signalsBySymbol,
         signalsByTimeframe,
         confidenceDistribution,
-        performanceByModel
+        performanceByModel,
       ] = await Promise.all([
         Signal.countDocuments(timeFilter),
         this.getSignalPerformanceStats(timeFilter),
@@ -132,7 +164,7 @@ class AnalyticsService {
         this.getSignalsBySymbol(timeFilter),
         this.getSignalsByTimeframe(timeFilter),
         this.getConfidenceDistribution(timeFilter),
-        this.getPerformanceByModel(timeFilter)
+        this.getPerformanceByModel(timeFilter),
       ]);
 
       return {
@@ -145,30 +177,24 @@ class AnalyticsService {
         signalsBySymbol,
         signalsByTimeframe,
         confidenceDistribution,
-        performanceByModel
+        performanceByModel,
       };
-    }, 300); // Cache for 5 minutes
+    }, 300);
   }
 
   async getTradingAnalytics(timeframe?: string): Promise<TradingAnalytics> {
     try {
       const timeFilter = this.getTimeFilter(timeframe);
-      
-      const [
-        totalTrades,
-        tradeStats,
-        tradesBySymbol,
-        tradesByTimeframe,
-        leverageDistribution,
-        topTraders
-      ] = await Promise.all([
-        Trade.countDocuments(timeFilter),
-        this.getTradingStats(timeFilter),
-        this.getTradesBySymbol(timeFilter),
-        this.getTradesByTimeframe(timeFilter),
-        this.getLeverageDistribution(timeFilter),
-        this.getTopTraders(timeFilter)
-      ]);
+
+      const [totalTrades, tradeStats, tradesBySymbol, tradesByTimeframe, leverageDistribution, topTraders] =
+        await Promise.all([
+          Trade.countDocuments(timeFilter),
+          this.getTradingStats(timeFilter),
+          this.getTradesBySymbol(timeFilter),
+          this.getTradesByTimeframe(timeFilter),
+          this.getLeverageDistribution(timeFilter),
+          this.getTopTraders(timeFilter),
+        ]);
 
       return {
         totalTrades,
@@ -181,7 +207,7 @@ class AnalyticsService {
         tradesBySymbol,
         tradesByTimeframe,
         leverageDistribution,
-        topTraders
+        topTraders,
       };
     } catch (error) {
       logger.error('Failed to get trading analytics', { error });
@@ -192,22 +218,16 @@ class AnalyticsService {
   async getUserAnalytics(timeframe?: string): Promise<UserAnalytics> {
     try {
       const timeFilter = this.getTimeFilter(timeframe);
-      
-      const [
-        totalUsers,
-        activeUsers,
-        userStats,
-        topCreators,
-        userGrowth,
-        reputationDistribution
-      ] = await Promise.all([
-        User.countDocuments(timeFilter),
-        this.getActiveUsersCount(timeFilter),
-        this.getUserStats(timeFilter),
-        this.getTopCreators(timeFilter),
-        this.getUserGrowth(timeFilter),
-        this.getReputationDistribution(timeFilter)
-      ]);
+
+      const [totalUsers, activeUsers, userStats, topCreators, userGrowth, reputationDistribution] =
+        await Promise.all([
+          User.countDocuments(timeFilter),
+          this.getActiveUsersCount(timeFilter),
+          this.getUserStats(timeFilter),
+          this.getTopCreators(timeFilter),
+          this.getUserGrowth(timeFilter),
+          this.getReputationDistribution(timeFilter),
+        ]);
 
       return {
         totalUsers,
@@ -216,7 +236,7 @@ class AnalyticsService {
         avgEarnings: userStats.avgEarnings,
         topCreators,
         userGrowth,
-        reputationDistribution
+        reputationDistribution,
       };
     } catch (error) {
       logger.error('Failed to get user analytics', { error });
@@ -227,19 +247,13 @@ class AnalyticsService {
   async getIPAnalytics(timeframe?: string): Promise<IPAnalytics> {
     try {
       const timeFilter = this.getTimeFilter(timeframe);
-      
-      const [
-        totalIPAssets,
-        ipStats,
-        mostPopularAssets,
-        revenueByType,
-        monthlyRevenue
-      ] = await Promise.all([
+
+      const [totalIPAssets, ipStats, mostPopularAssets, revenueByType, monthlyRevenue] = await Promise.all([
         IPAsset.countDocuments(timeFilter),
         this.getIPStats(timeFilter),
         this.getMostPopularAssets(timeFilter),
         this.getRevenueByType(timeFilter),
-        this.getMonthlyIPRevenue(timeFilter)
+        this.getMonthlyIPRevenue(timeFilter),
       ]);
 
       return {
@@ -249,7 +263,7 @@ class AnalyticsService {
         totalSales: ipStats.totalSales,
         mostPopularAssets,
         revenueByType,
-        monthlyRevenue
+        monthlyRevenue,
       };
     } catch (error) {
       logger.error('Failed to get IP analytics', { error });
@@ -264,7 +278,7 @@ class AnalyticsService {
         this.getSignalAnalytics(timeframe),
         this.getTradingAnalytics(timeframe),
         this.getUserAnalytics(timeframe),
-        this.getIPAnalytics(timeframe)
+        this.getIPAnalytics(timeframe),
       ]);
 
       return {
@@ -273,13 +287,15 @@ class AnalyticsService {
         trading,
         users,
         ip,
-        generatedAt: new Date()
+        generatedAt: new Date(),
       };
     } catch (error) {
       logger.error('Failed to get detailed analytics', { error });
       throw new CustomError('ANALYTICS_ERROR', 500, 'Failed to generate detailed analytics');
     }
   }
+
+  // ===== helpers =====
 
   private getTimeFilter(timeframe?: string): any {
     if (!timeframe) return {};
@@ -313,26 +329,26 @@ class AnalyticsService {
   private async getTotalVolume(): Promise<number> {
     const result = await Trade.aggregate([
       { $match: { status: { $in: ['closed', 'open'] } } },
-      { $group: { _id: null, totalVolume: { $sum: { $multiply: ['$size', '$entryPrice'] } } } }
+      { $group: { _id: null, totalVolume: { $sum: { $multiply: ['$size', '$entryPrice'] } } } },
     ]);
     return result[0]?.totalVolume || 0;
   }
 
   private async getTotalRevenue(): Promise<number> {
-    const result = await IPAsset.aggregate([
-      { $group: { _id: null, totalRevenue: { $sum: '$totalRevenue' } } }
-    ]);
+    const result = await IPAsset.aggregate([{ $group: { _id: null, totalRevenue: { $sum: '$totalRevenue' } } }]);
     return result[0]?.totalRevenue || 0;
   }
 
   private async getSignalAccuracy(): Promise<number> {
     const result = await Signal.aggregate([
       { $match: { 'performance.outcome': { $in: ['win', 'loss'] } } },
-      { $group: { 
-        _id: null, 
-        total: { $sum: 1 },
-        wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } }
-      }}
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } },
+        },
+      },
     ]);
     const stats = result[0];
     return stats ? (stats.wins / stats.total) * 100 : 0;
@@ -342,37 +358,35 @@ class AnalyticsService {
     const result = await Trade.aggregate([
       { $group: { _id: '$symbol', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
-      { $limit: 1 }
+      { $limit: 1 },
     ]);
     return result[0]?._id || 'N/A';
   }
 
   private async getTopPerformer(): Promise<string> {
-    const result = await User.aggregate([
-      { $sort: { avgPerformance: -1 } },
-      { $limit: 1 },
-      { $project: { username: 1 } }
-    ]);
+    const result = await User.aggregate([{ $sort: { avgPerformance: -1 } }, { $limit: 1 }, { $project: { username: 1 } }]);
     return result[0]?.username || 'N/A';
   }
 
   private async getSignalPerformanceStats(timeFilter: any): Promise<any> {
     const results = await Signal.aggregate([
       { $match: { ...timeFilter, 'performance.outcome': { $in: ['win', 'loss', 'breakeven'] } } },
-      { $group: {
-        _id: null,
-        totalSignals: { $sum: 1 },
-        wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } },
-        avgReturn: { $avg: '$performance.actualReturn' },
-        avgConfidence: { $avg: '$confidence' }
-      }}
+      {
+        $group: {
+          _id: null,
+          totalSignals: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } },
+          avgReturn: { $avg: '$performance.actualReturn' },
+          avgConfidence: { $avg: '$confidence' },
+        },
+      },
     ]);
 
     const symbolResults = await Signal.aggregate([
       { $match: { ...timeFilter, 'performance.outcome': 'win' } },
       { $group: { _id: '$symbol', wins: { $sum: 1 } } },
       { $sort: { wins: -1 } },
-      { $limit: 1 }
+      { $limit: 1 },
     ]);
 
     const stats = results[0] || {};
@@ -380,33 +394,34 @@ class AnalyticsService {
       winRate: stats.totalSignals ? (stats.wins / stats.totalSignals) * 100 : 0,
       avgReturn: stats.avgReturn || 0,
       avgConfidence: stats.avgConfidence || 0,
-      bestSymbol: symbolResults[0]?._id || 'N/A'
+      bestSymbol: symbolResults[0]?._id || 'N/A',
     };
   }
 
   private async getSignalsByStatus(timeFilter: any): Promise<Record<string, number>> {
-    const results = await Signal.aggregate([
-      { $match: timeFilter },
-      { $group: { _id: '$status', count: { $sum: 1 } } }
-    ]);
-    return results.reduce((acc, { _id, count }) => ({ ...acc, [_id]: count }), {});
+    const results = await Signal.aggregate([{ $match: timeFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
+    return results.reduce((acc, { _id, count }) => ({ ...acc, [_id]: count }), {} as Record<string, number>);
   }
 
   private async getSignalsBySymbol(timeFilter: any): Promise<Array<{ symbol: string; count: number; winRate: number }>> {
     const results = await Signal.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: '$symbol',
-        count: { $sum: 1 },
-        wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } }
-      }},
-      { $project: {
-        symbol: '$_id',
-        count: 1,
-        winRate: { $multiply: [{ $divide: ['$wins', '$count'] }, 100] }
-      }},
+      {
+        $group: {
+          _id: '$symbol',
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } },
+        },
+      },
+      {
+        $project: {
+          symbol: '$_id',
+          count: 1,
+          winRate: { $multiply: [{ $divide: ['$wins', '$count'] }, 100] },
+        },
+      },
       { $sort: { count: -1 } },
-      { $limit: 10 }
+      { $limit: 10 },
     ]);
     return results.map(({ symbol, count, winRate }) => ({ symbol, count, winRate: winRate || 0 }));
   }
@@ -414,11 +429,13 @@ class AnalyticsService {
   private async getSignalsByTimeframe(timeFilter: any): Promise<Array<{ date: string; count: number }>> {
     const results = await Signal.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-        count: { $sum: 1 }
-      }},
-      { $sort: { _id: 1 } }
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
     ]);
     return results.map(({ _id, count }) => ({ date: _id, count }));
   }
@@ -426,52 +443,65 @@ class AnalyticsService {
   private async getConfidenceDistribution(timeFilter: any): Promise<Array<{ range: string; count: number }>> {
     const results = await Signal.aggregate([
       { $match: timeFilter },
-      { $bucket: {
-        groupBy: '$confidence',
-        boundaries: [0, 60, 70, 80, 90, 100],
-        default: 'other',
-        output: { count: { $sum: 1 } }
-      }}
+      {
+        $bucket: {
+          groupBy: '$confidence',
+          boundaries: [0, 60, 70, 80, 90, 100],
+          default: 'other',
+          output: { count: { $sum: 1 } },
+        },
+      },
     ]);
-    return results.map(({ _id, count }) => ({ 
-      range: _id === 'other' ? '100+' : `${_id}-${_id + 10}`, 
-      count 
+    return results.map(({ _id, count }) => ({
+      range: _id === 'other' ? '100+' : `${_id}-${_id + 10}`,
+      count,
     }));
   }
 
-  private async getPerformanceByModel(timeFilter: any): Promise<Array<{ model: string; count: number; winRate: number; avgReturn: number }>> {
+  private async getPerformanceByModel(timeFilter: any): Promise<
+    Array<{ model: string; count: number; winRate: number; avgReturn: number }>
+  > {
     const results = await Signal.aggregate([
       { $match: { ...timeFilter, 'performance.outcome': { $in: ['win', 'loss', 'breakeven'] } } },
-      { $group: {
-        _id: '$aiModel',
-        count: { $sum: 1 },
-        wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } },
-        avgReturn: { $avg: '$performance.actualReturn' }
-      }},
-      { $project: {
-        model: '$_id',
-        count: 1,
-        winRate: { $multiply: [{ $divide: ['$wins', '$count'] }, 100] },
-        avgReturn: 1
-      }}
+      {
+        $group: {
+          _id: '$aiModel',
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $eq: ['$performance.outcome', 'win'] }, 1, 0] } },
+          avgReturn: { $avg: '$performance.actualReturn' },
+        },
+      },
+      {
+        $project: {
+          model: '$_id',
+          count: 1,
+          winRate: { $multiply: [{ $divide: ['$wins', '$count'] }, 100] },
+          avgReturn: 1,
+        },
+      },
     ]);
-    return results.map(({ model, count, winRate, avgReturn }) => ({ 
-      model, count, winRate: winRate || 0, avgReturn: avgReturn || 0 
+    return results.map(({ model, count, winRate, avgReturn }) => ({
+      model,
+      count,
+      winRate: winRate || 0,
+      avgReturn: avgReturn || 0,
     }));
   }
 
   private async getTradingStats(timeFilter: any): Promise<any> {
     const results = await Trade.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: null,
-        totalVolume: { $sum: { $multiply: ['$size', '$entryPrice'] } },
-        avgROI: { $avg: '$performance.roi' },
-        totalPnL: { $sum: '$realizedPnl' },
-        winningTrades: { $sum: { $cond: [{ $gt: ['$realizedPnl', 0] }, 1, 0] } },
-        losingTrades: { $sum: { $cond: [{ $lt: ['$realizedPnl', 0] }, 1, 0] } },
-        avgHoldingPeriod: { $avg: '$performance.holdingPeriod' }
-      }}
+      {
+        $group: {
+          _id: null,
+          totalVolume: { $sum: { $multiply: ['$size', '$entryPrice'] } },
+          avgROI: { $avg: '$performance.roi' },
+          totalPnL: { $sum: '$realizedPnl' },
+          winningTrades: { $sum: { $cond: [{ $gt: ['$realizedPnl', 0] }, 1, 0] } },
+          losingTrades: { $sum: { $cond: [{ $lt: ['$realizedPnl', 0] }, 1, 0] } },
+          avgHoldingPeriod: { $avg: '$performance.holdingPeriod' },
+        },
+      },
     ]);
     return results[0] || {};
   }
@@ -479,14 +509,16 @@ class AnalyticsService {
   private async getTradesBySymbol(timeFilter: any): Promise<Array<{ symbol: string; count: number; totalPnL: number }>> {
     const results = await Trade.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: '$symbol',
-        count: { $sum: 1 },
-        totalPnL: { $sum: '$realizedPnl' }
-      }},
+      {
+        $group: {
+          _id: '$symbol',
+          count: { $sum: 1 },
+          totalPnL: { $sum: '$realizedPnl' },
+        },
+      },
       { $project: { symbol: '$_id', count: 1, totalPnL: 1 } },
       { $sort: { count: -1 } },
-      { $limit: 10 }
+      { $limit: 10 },
     ]);
     return results.map(({ symbol, count, totalPnL }) => ({ symbol, count, totalPnL: totalPnL || 0 }));
   }
@@ -494,12 +526,14 @@ class AnalyticsService {
   private async getTradesByTimeframe(timeFilter: any): Promise<Array<{ date: string; count: number; volume: number }>> {
     const results = await Trade.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-        count: { $sum: 1 },
-        volume: { $sum: { $multiply: ['$size', '$entryPrice'] } }
-      }},
-      { $sort: { _id: 1 } }
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 },
+          volume: { $sum: { $multiply: ['$size', '$entryPrice'] } },
+        },
+      },
+      { $sort: { _id: 1 } },
     ]);
     return results.map(({ _id, count, volume }) => ({ date: _id, count, volume }));
   }
@@ -507,83 +541,107 @@ class AnalyticsService {
   private async getLeverageDistribution(timeFilter: any): Promise<Array<{ leverage: number; count: number; avgROI: number }>> {
     const results = await Trade.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: '$leverage',
-        count: { $sum: 1 },
-        avgROI: { $avg: '$performance.roi' }
-      }},
+      {
+        $group: {
+          _id: '$leverage',
+          count: { $sum: 1 },
+          avgROI: { $avg: '$performance.roi' },
+        },
+      },
       { $project: { leverage: '$_id', count: 1, avgROI: 1 } },
-      { $sort: { leverage: 1 } }
+      { $sort: { leverage: 1 } },
     ]);
     return results.map(({ leverage, count, avgROI }) => ({ leverage, count, avgROI: avgROI || 0 }));
   }
 
-  private async getTopTraders(timeFilter: any): Promise<Array<{ userId: string; username: string; totalPnL: number; winRate: number }>> {
+  private async getTopTraders(timeFilter: any): Promise<
+    Array<{ userId: string; username: string; totalPnL: number; winRate: number }>
+  > {
     const results = await Trade.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: '$userId',
-        totalPnL: { $sum: '$realizedPnl' },
-        totalTrades: { $sum: 1 },
-        winningTrades: { $sum: { $cond: [{ $gt: ['$realizedPnl', 0] }, 1, 0] } }
-      }},
+      {
+        $group: {
+          _id: '$userId',
+          totalPnL: { $sum: '$realizedPnl' },
+          totalTrades: { $sum: 1 },
+          winningTrades: { $sum: { $cond: [{ $gt: ['$realizedPnl', 0] }, 1, 0] } },
+        },
+      },
       { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
       { $unwind: '$user' },
-      { $project: {
-        userId: '$_id',
-        username: '$user.username',
-        totalPnL: 1,
-        winRate: { $multiply: [{ $divide: ['$winningTrades', '$totalTrades'] }, 100] }
-      }},
+      {
+        $project: {
+          userId: '$_id',
+          username: '$user.username',
+          totalPnL: 1,
+          winRate: { $multiply: [{ $divide: ['$winningTrades', '$totalTrades'] }, 100] },
+        },
+      },
       { $sort: { totalPnL: -1 } },
-      { $limit: 10 }
+      { $limit: 10 },
     ]);
-    return results.map(({ userId, username, totalPnL, winRate }) => ({ 
-      userId, username, totalPnL, winRate: winRate || 0 
+    return results.map(({ userId, username, totalPnL, winRate }) => ({
+      userId,
+      username,
+      totalPnL,
+      winRate: winRate || 0,
     }));
   }
 
   private async getActiveUsersCount(timeFilter: any): Promise<number> {
-    return Signal.distinct('creator', timeFilter).then(users => users.length);
+    // Distinct creators of signals in timeframe; exclude platform sentinel if present
+    const cond = { ...timeFilter, creator: { $ne: 'platform' } };
+    return Signal.distinct('creator', cond).then(users => users.length);
   }
 
   private async getUserStats(timeFilter: any): Promise<any> {
     const results = await User.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: null,
-        avgSignalsPerUser: { $avg: '$signalsCreated' },
-        avgEarnings: { $avg: '$totalEarnings' }
-      }}
+      {
+        $group: {
+          _id: null,
+          avgSignalsPerUser: { $avg: '$signalsCreated' },
+          avgEarnings: { $avg: '$totalEarnings' },
+        },
+      },
     ]);
     return results[0] || {};
   }
 
-  private async getTopCreators(timeFilter: any): Promise<Array<{ userId: string; username: string; signalsCount: number; avgPerformance: number }>> {
+  private async getTopCreators(timeFilter: any): Promise<
+    Array<{ userId: string; username: string; signalsCount: number; avgPerformance: number }>
+  > {
     const results = await User.aggregate([
       { $match: timeFilter },
-      { $project: {
-        userId: '$_id',
-        username: 1,
-        signalsCount: '$signalsCreated',
-        avgPerformance: 1
-      }},
+      {
+        $project: {
+          userId: '$_id',
+          username: 1,
+          signalsCount: '$signalsCreated',
+          avgPerformance: 1,
+        },
+      },
       { $sort: { signalsCount: -1 } },
-      { $limit: 10 }
+      { $limit: 10 },
     ]);
-    return results.map(({ userId, username, signalsCount, avgPerformance }) => ({ 
-      userId, username, signalsCount, avgPerformance 
+    return results.map(({ userId, username, signalsCount, avgPerformance }) => ({
+      userId,
+      username,
+      signalsCount,
+      avgPerformance,
     }));
   }
 
   private async getUserGrowth(timeFilter: any): Promise<Array<{ date: string; newUsers: number; totalUsers: number }>> {
     const results = await User.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-        newUsers: { $sum: 1 }
-      }},
-      { $sort: { _id: 1 } }
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          newUsers: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
     ]);
 
     let totalUsers = 0;
@@ -596,28 +654,32 @@ class AnalyticsService {
   private async getReputationDistribution(timeFilter: any): Promise<Array<{ range: string; count: number }>> {
     const results = await User.aggregate([
       { $match: timeFilter },
-      { $bucket: {
-        groupBy: '$reputation',
-        boundaries: [0, 20, 40, 60, 80, 100],
-        default: 'other',
-        output: { count: { $sum: 1 } }
-      }}
+      {
+        $bucket: {
+          groupBy: '$reputation',
+          boundaries: [0, 20, 40, 60, 80, 100],
+          default: 'other',
+          output: { count: { $sum: 1 } },
+        },
+      },
     ]);
-    return results.map(({ _id, count }) => ({ 
-      range: _id === 'other' ? '100+' : `${_id}-${_id + 20}`, 
-      count 
+    return results.map(({ _id, count }) => ({
+      range: _id === 'other' ? '100+' : `${_id}-${_id + 20}`,
+      count,
     }));
   }
 
   private async getIPStats(timeFilter: any): Promise<any> {
     const results = await IPAsset.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: null,
-        totalRevenue: { $sum: '$totalRevenue' },
-        avgPrice: { $avg: '$price' },
-        totalSales: { $sum: '$totalSales' }
-      }}
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$totalRevenue' },
+          avgPrice: { $avg: '$price' },
+          totalSales: { $sum: '$totalSales' },
+        },
+      },
     ]);
     return results[0] || {};
   }
@@ -627,7 +689,7 @@ class AnalyticsService {
       { $match: timeFilter },
       { $project: { name: 1, sales: '$totalSales', revenue: '$totalRevenue' } },
       { $sort: { sales: -1 } },
-      { $limit: 10 }
+      { $limit: 10 },
     ]);
     return results;
   }
@@ -635,12 +697,14 @@ class AnalyticsService {
   private async getRevenueByType(timeFilter: any): Promise<Array<{ type: string; revenue: number; sales: number }>> {
     const results = await IPAsset.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: '$type',
-        revenue: { $sum: '$totalRevenue' },
-        sales: { $sum: '$totalSales' }
-      }},
-      { $project: { type: '$_id', revenue: 1, sales: 1 } }
+      {
+        $group: {
+          _id: '$type',
+          revenue: { $sum: '$totalRevenue' },
+          sales: { $sum: '$totalSales' },
+        },
+      },
+      { $project: { type: '$_id', revenue: 1, sales: 1 } },
     ]);
     return results;
   }
@@ -648,28 +712,30 @@ class AnalyticsService {
   private async getMonthlyIPRevenue(timeFilter: any): Promise<Array<{ month: string; revenue: number; sales: number }>> {
     const results = await IPAsset.aggregate([
       { $match: timeFilter },
-      { $group: {
-        _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
-        revenue: { $sum: '$totalRevenue' },
-        sales: { $sum: '$totalSales' }
-      }},
-      { $sort: { _id: 1 } }
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+          revenue: { $sum: '$totalRevenue' },
+          sales: { $sum: '$totalSales' },
+        },
+      },
+      { $sort: { _id: 1 } },
     ]);
     return results.map(({ _id, revenue, sales }) => ({ month: _id, revenue, sales }));
   }
 
   private async getOrComputeAnalytics<T>(
-    type: 'overview' | 'signals' | 'trading' | 'users' | 'ip' | 'detailed',
+    type: 'overview' | 'signals' | 'trading' | 'users' | 'ip' | 'detailed' | 'admin',
     timeframe: string = 'all',
     computeFn: () => Promise<T>,
     ttlSeconds: number = 300
   ): Promise<T> {
     try {
       const normalizedTimeframe = timeframe || 'all';
-      const cached = await AnalyticsSnapshot.findOne({ 
-        type, 
+      const cached = await AnalyticsSnapshot.findOne({
+        type,
         timeframe: normalizedTimeframe,
-        validUntil: { $gt: new Date() }
+        validUntil: { $gt: new Date() },
       });
 
       if (cached) {
@@ -679,16 +745,16 @@ class AnalyticsService {
 
       logger.debug('Analytics cache miss - computing', { type, timeframe: normalizedTimeframe });
       const data = await computeFn();
-      
+
       const validUntil = new Date(Date.now() + ttlSeconds * 1000);
       await AnalyticsSnapshot.findOneAndUpdate(
         { type, timeframe: normalizedTimeframe },
-        { 
-          type, 
+        {
+          type,
           timeframe: normalizedTimeframe,
-          data, 
+          data,
           computedAt: new Date(),
-          validUntil 
+          validUntil,
         },
         { upsert: true, new: true }
       );

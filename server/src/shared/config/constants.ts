@@ -1,9 +1,10 @@
 export const API_ROUTES = {
   AUTH: '/api/auth',
   SIGNALS: '/api/signals',
-  TRADING: '/api/trading',
   IP: '/api/ip',
+  TRADING: '/api/trading',
   ANALYTICS: '/api/analytics',
+  ADMIN: '/api/admin',
 } as const;
 
 export const IP_USAGE_CONFIG = {

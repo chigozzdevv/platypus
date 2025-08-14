@@ -7,6 +7,8 @@ import ErrorBoundary from './components/error-boundary';
 import Landing from './pages/landing';
 import Auth from './pages/auth';
 import DashboardLayout from './components/dashboard-layout';
+import AdminLayout from './components/admin-layout';
+import AuthSync from './components/auth-sync';
 import Overview from './pages/dashboard/overview';
 import Marketplace from './pages/dashboard/marketplace';
 import Signals from './pages/dashboard/signals';
@@ -15,9 +17,7 @@ import Royalties from './pages/dashboard/royalties';
 import MySignals from './pages/dashboard/my-signals';
 import Profile from './pages/dashboard/profile';
 import Settings from './pages/dashboard/settings';
-import AdminLayout from './components/admin-layout';
 import AdminDashboard from './pages/dashboard/admin';
-import AuthSync from './components/auth-sync';
 
 const queryClient = new QueryClient();
 
@@ -41,11 +41,10 @@ function AppRoutes() {
           )
         }
       />
-
       <Route
         path="/dashboard/*"
         element={
-          isAuthenticated && !isAdmin ? (
+          isAuthenticated ? (
             <DashboardLayout>
               <Routes>
                 <Route path="/" element={<Overview />} />
@@ -57,23 +56,23 @@ function AppRoutes() {
                 <Route path="my-signals" element={<MySignals />} />
                 <Route path="profile" element={<Profile />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </DashboardLayout>
-          ) : isAuthenticated && isAdmin ? (
-            <Navigate to="/admin/dashboard" replace />
           ) : (
             <Navigate to="/auth" replace />
           )
         }
       />
-
       <Route
-        path="/admin/*"
+        path="/admin/dashboard/*"
         element={
           isAuthenticated && isAdmin ? (
             <AdminLayout>
               <Routes>
-                <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="/" element={<AdminDashboard />} />
+                <Route path="signals" element={<AdminDashboard />} />
+                <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
               </Routes>
             </AdminLayout>
           ) : isAuthenticated ? (
@@ -83,7 +82,6 @@ function AppRoutes() {
           )
         }
       />
-
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -93,7 +91,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <CampProvider clientId={import.meta.env.VITE_CAMP_CLIENT_ID}>
+        <CampProvider clientId={import.meta.env.VITE_PUBLIC_ORIGIN_CLIENT_ID}>
           <Router>
             <AuthSync />
             <AppRoutes />

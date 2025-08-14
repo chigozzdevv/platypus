@@ -6,6 +6,7 @@ import { authService } from '../auth/auth.service';
 import { logger } from '@/shared/utils/logger';
 import { CustomError } from '@/shared/middleware/error.middleware';
 import { env } from '@/shared/config/env';
+import { User } from '@/features/auth/auth.model';
 
 export interface CreateSignalParams {
   symbol?: string;
@@ -22,19 +23,28 @@ export interface ImproveSignalParams {
 }
 
 class SignalsService {
+  private platformUserIdCache?: Types.ObjectId;
+
   private async getPlatformUserId(): Promise<Types.ObjectId> {
-    const user = await authService.getUserByWallet(env.PLATFORM_WALLET_ADDRESS);
-    if (!user || !user._id) {
-      throw new CustomError('PLATFORM_USER_NOT_FOUND', 500, 'Platform admin user not found');
+    if (this.platformUserIdCache) return this.platformUserIdCache;
+    const addr = env.PLATFORM_WALLET_ADDRESS.toLowerCase();
+    let user = await authService.getUserByWallet(addr);
+    if (!user) {
+      user = new User({
+        walletAddress: addr,
+        username: 'admin',
+        userType: 'admin',
+      });
+      await user.save();
+      logger.info('Platform admin user created', { walletAddress: addr, userId: user._id });
     }
-    return user._id as Types.ObjectId;
+    this.platformUserIdCache = user._id as Types.ObjectId;
+    return this.platformUserIdCache;
   }
 
   async generatePlatformSignals(count: number = 25): Promise<SignalDocument[]> {
     try {
       logger.info('Starting platform signal generation', { targetCount: count });
-
-      const platformUserId = await this.getPlatformUserId();
 
       const { opportunities } = await tradingService.findTopOpportunities(undefined, {
         maxSymbols: 50,
@@ -47,6 +57,7 @@ class SignalsService {
         return [];
       }
 
+      const platformId = await this.getPlatformUserId();
       const generatedSignals: SignalDocument[] = [];
 
       for (const opportunity of opportunities) {
@@ -58,7 +69,7 @@ class SignalsService {
           );
 
           const signal = new Signal({
-            creator: platformUserId,
+            creator: platformId,
             aiModel: 'gpt-4o-mini',
             ...tradingSignal,
             status: 'active',
@@ -69,21 +80,22 @@ class SignalsService {
 
           await signal.save();
           generatedSignals.push(signal);
-
-          logger.info('Platform signal generated', {
+          
+          logger.info('Platform signal generated', { 
             signalId: signal._id,
             symbol: opportunity.symbol,
             winRate: opportunity.winRate
           });
+
         } catch (error) {
           logger.error('Failed to generate platform signal', { error, symbol: opportunity.symbol });
           continue;
         }
       }
 
-      logger.info('Platform signal generation completed', {
+      logger.info('Platform signal generation completed', { 
         generated: generatedSignals.length,
-        target: count
+        target: count 
       });
 
       return generatedSignals;
@@ -93,7 +105,10 @@ class SignalsService {
     }
   }
 
-  async createAISignal(userId: string, params: CreateSignalParams): Promise<SignalDocument> {
+  async createAISignal(
+    userId: string,
+    params: CreateSignalParams
+  ): Promise<SignalDocument> {
     try {
       const user = await authService.getUserById(userId);
       if (!user) {
@@ -105,19 +120,16 @@ class SignalsService {
         throw new CustomError('CREDENTIALS_REQUIRED', 400, 'Hyperliquid credentials required for user signal generation');
       }
 
-      const accountBalance =
-        params.accountBalance ||
-        (await tradingService.getAccountBalance(credentials.privateKey, credentials.walletAddress));
-
-      const userSignals = await Signal.find({
+      const accountBalance = params.accountBalance || (await tradingService.getAccountBalance(credentials.privateKey, credentials.walletAddress));
+      
+      const userSignals = await Signal.find({ 
         creator: userId,
         'performance.outcome': { $in: ['win', 'loss', 'breakeven'] }
-      })
-        .sort({ createdAt: -1 })
-        .limit(50);
+      }).sort({ createdAt: -1 }).limit(50);
 
-      const historicalPerformance =
-        userSignals.length > 0 ? await tradingService.analyzePerformance(userSignals) : undefined;
+      const historicalPerformance = userSignals.length > 0 
+        ? await tradingService.analyzePerformance(userSignals)
+        : undefined;
 
       let selectedSymbol = params.symbol;
       if (!selectedSymbol) {
@@ -126,11 +138,11 @@ class SignalsService {
           minVolume: 1000000,
           topCount: 1
         });
-
+        
         if (opportunities.length === 0) {
           throw new CustomError('NO_OPPORTUNITIES', 400, 'No suitable trading opportunities found');
         }
-
+        
         selectedSymbol = opportunities[0].symbol;
       }
 
@@ -161,11 +173,11 @@ class SignalsService {
 
   async getSignalById(signalId: string): Promise<SignalDocument | null> {
     return Signal.findById(signalId).populate('creator', 'username avatar reputation');
-    }
+  }
 
   async getUserSignals(
     userId: string,
-    filters: { status?: string; symbol?: string; outcome?: string; limit?: number; offset?: number } = {}
+    filters: { status?: string; symbol?: string; outcome?: string; limit?: number; offset?: number; } = {}
   ): Promise<{ signals: SignalDocument[]; total: number }> {
     const query: any = { creator: userId };
     if (filters.status) query.status = filters.status;
@@ -176,11 +188,7 @@ class SignalsService {
     const offset = filters.offset || 0;
 
     const [signals, total] = await Promise.all([
-      Signal.find(query)
-        .populate('creator', 'username avatar')
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(offset),
+      Signal.find(query).populate('creator', 'username avatar').sort({ createdAt: -1 }).limit(limit).skip(offset),
       Signal.countDocuments(query)
     ]);
 
@@ -199,20 +207,20 @@ class SignalsService {
     if (signal.status !== 'active') {
       throw new CustomError('SIGNAL_NOT_ACTIVE', 400, 'Only active signals can be improved');
     }
+
     if (signal.improvements && signal.improvements.length > 0) {
       throw new CustomError('SIGNAL_ALREADY_IMPROVED', 400, 'This signal has already been improved by another user');
     }
+
     if (signal.creator.toString() === userId) {
       throw new CustomError('CANNOT_IMPROVE_OWN_SIGNAL', 400, 'You cannot improve your own signal');
     }
 
     const qualityScore = await this.assessImprovementQuality(signal, improvement);
+    
     if (qualityScore < 50) {
-      throw new CustomError(
-        'IMPROVEMENT_QUALITY_LOW',
-        400,
-        `Improvement quality too low (${qualityScore}/100). Please provide more substantive changes and reasoning.`
-      );
+      throw new CustomError('IMPROVEMENT_QUALITY_LOW', 400, 
+        `Improvement quality too low (${qualityScore}/100). Please provide more substantive changes and reasoning.`);
     }
 
     const revenueShare = 0.6;
@@ -224,8 +232,8 @@ class SignalsService {
       revenueShare,
       performance: { outcome: 'pending', returnImprovement: 0 },
       registeredAsIP: false,
-      createdAt: new Date()
-    } as any);
+      createdAt: new Date(),
+    });
 
     if (improvement.newExpiryTime) {
       signal.expiresAt = improvement.newExpiryTime;
@@ -247,7 +255,10 @@ class SignalsService {
       status: 'active',
       registeredAsIP: true,
       adminStatus: 'minted',
-      $or: [{ improvements: { $exists: false } }, { improvements: { $size: 0 } }],
+      $or: [
+        { improvements: { $exists: false } },
+        { improvements: { $size: 0 } }
+      ],
       expiresAt: { $gte: new Date() }
     };
 
@@ -308,7 +319,7 @@ class SignalsService {
   async expireOldSignals(): Promise<void> {
     const result = await Signal.updateMany(
       { status: 'active', expiresAt: { $lt: new Date() } },
-      {
+      { 
         status: 'expired',
         'performance.outcome': 'breakeven',
         'performance.exitReason': 'expired',
@@ -352,8 +363,8 @@ class SignalsService {
     bestSignal: number;
     worstSignal: number;
   }> {
-    const signals = await Signal.find({
-      creator: userId,
+    const signals = await Signal.find({ 
+      creator: userId, 
       'performance.outcome': { $in: ['win', 'loss', 'breakeven'] }
     });
 
@@ -382,10 +393,12 @@ class SignalsService {
     };
   }
 
-  async searchSignals(
-    query: string,
-    filters: { symbol?: string; minConfidence?: number; limit?: number; offset?: number } = {}
-  ): Promise<{ signals: SignalDocument[]; total: number }> {
+  async searchSignals(query: string, filters: {
+    symbol?: string;
+    minConfidence?: number;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
     const searchQuery: any = {
       isPublic: true,
       status: 'active',
@@ -422,16 +435,17 @@ class SignalsService {
     sortBy?: string;
     limit?: number;
   } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
-    const platformUserId = await this.getPlatformUserId();
-
+    const platformId = await this.getPlatformUserId();
     const query: any = {
-      creator: platformUserId,
+      creator: platformId,
       status: 'active',
-      adminStatus: 'pending_review'
+      adminStatus: 'pending_review',
     };
 
     if (filters.minConfidence) query.confidence = { $gte: filters.minConfidence };
-    if (filters.maxAge) query.createdAt = { $gte: new Date(Date.now() - filters.maxAge * 60 * 60 * 1000) };
+    if (filters.maxAge) {
+      query.createdAt = { $gte: new Date(Date.now() - filters.maxAge * 60 * 60 * 1000) };
+    }
     if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
     if (filters.aiModel) query.aiModel = filters.aiModel;
 
@@ -494,8 +508,8 @@ class SignalsService {
     }
 
     signal.improvements[improvementIndex].registeredAsIP = true;
-    signal.improvements[improvementIndex].ipTokenId = data.tokenId as any;
-    signal.improvements[improvementIndex].ipTransactionHash = data.transactionHash as any;
+    signal.improvements[improvementIndex].ipTokenId = data.tokenId;
+    signal.improvements[improvementIndex].ipTransactionHash = data.transactionHash;
 
     await signal.save();
     return signal;
@@ -509,9 +523,9 @@ class SignalsService {
     limit?: number;
     offset?: number;
   } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
-    const platformUserId = await this.getPlatformUserId();
+    const platformId = await this.getPlatformUserId();
+    const query: any = { creator: platformId };
 
-    const query: any = { creator: platformUserId };
     if (filters.adminStatus) query.adminStatus = filters.adminStatus;
     if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
     if (filters.aiModel) query.aiModel = filters.aiModel;
@@ -538,14 +552,18 @@ class SignalsService {
 
     if (!signal) return null;
 
-    const hasIPRegistration = signal.registeredAsIP || signal.improvements?.some(imp => imp.registeredAsIP);
-    if (!hasIPRegistration) return signal;
+    const hasIPRegistration = signal.registeredAsIP || 
+      signal.improvements?.some(imp => imp.registeredAsIP);
+
+    if (!hasIPRegistration) {
+      return signal;
+    }
 
     return signal;
   }
 
   private async assessImprovementQuality(
-    originalSignal: SignalDocument,
+    originalSignal: SignalDocument, 
     improvement: ImproveSignalParams
   ): Promise<number> {
     let score = 0;
@@ -556,13 +574,19 @@ class SignalsService {
     }
 
     const hasSubstantiveChanges = this.hasSubstantiveChanges(improvement);
-    if (hasSubstantiveChanges) score += 25;
+    if (hasSubstantiveChanges) {
+      score += 25;
+    }
 
     const hasLogicalAdjustments = this.validateAdjustments(originalSignal, improvement);
-    if (hasLogicalAdjustments) score += 25;
+    if (hasLogicalAdjustments) {
+      score += 25;
+    }
 
     const providesNewInsights = await this.checkForNewInsights(originalSignal, improvement);
-    if (providesNewInsights) score += 25;
+    if (providesNewInsights) {
+      score += 25;
+    }
 
     const grammarScore = this.checkGrammarCoherence(improvement.reasoning);
     score += Math.min(10, grammarScore);
@@ -575,17 +599,21 @@ class SignalsService {
       const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
       return changePercent > 0.005;
     }
+
     if (improvement.improvementType === 'stop-loss-adjustment' && improvement.originalValue !== improvement.improvedValue) {
       const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
       return changePercent > 0.01;
     }
+
     if (improvement.improvementType === 'take-profit-adjustment' && improvement.originalValue !== improvement.improvedValue) {
       const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
       return changePercent > 0.01;
     }
+
     if (improvement.improvementType === 'analysis-enhancement') {
       return typeof improvement.reasoning === 'string' && improvement.reasoning.length > 80;
     }
+
     return false;
   }
 
@@ -597,20 +625,29 @@ class SignalsService {
 
     if (improvement.improvementType === 'entry-adjustment') {
       const newEntry = improvement.improvedValue;
-      if (side === 'long') return newEntry > stopLoss && newEntry < takeProfit;
-      return newEntry < stopLoss && newEntry > takeProfit;
+      if (side === 'long') {
+        return newEntry > stopLoss && newEntry < takeProfit;
+      } else {
+        return newEntry < stopLoss && newEntry > takeProfit;
+      }
     }
 
     if (improvement.improvementType === 'stop-loss-adjustment') {
       const newStop = improvement.improvedValue;
-      if (side === 'long') return newStop < entryPrice && newStop < takeProfit;
-      return newStop > entryPrice && newStop > takeProfit;
+      if (side === 'long') {
+        return newStop < entryPrice && newStop < takeProfit;
+      } else {
+        return newStop > entryPrice && newStop > takeProfit;
+      }
     }
 
     if (improvement.improvementType === 'take-profit-adjustment') {
       const newTarget = improvement.improvedValue;
-      if (side === 'long') return newTarget > entryPrice && newTarget > stopLoss;
-      return newTarget < entryPrice && newTarget < stopLoss;
+      if (side === 'long') {
+        return newTarget > entryPrice && newTarget > stopLoss;
+      } else {
+        return newTarget < entryPrice && newTarget < stopLoss;
+      }
     }
 
     return true;
@@ -619,23 +656,9 @@ class SignalsService {
   private async checkForNewInsights(originalSignal: SignalDocument, improvement: ImproveSignalParams): Promise<boolean> {
     const reasoning = improvement.reasoning?.toLowerCase() || '';
     const insightKeywords = [
-      'support',
-      'resistance',
-      'volume',
-      'momentum',
-      'trend',
-      'pattern',
-      'fibonacci',
-      'ma',
-      'rsi',
-      'macd',
-      'bollinger',
-      'institutional',
-      'liquidity',
-      'breakout',
-      'breakdown',
-      'consolidation',
-      'divergence'
+      'support', 'resistance', 'volume', 'momentum', 'trend', 'pattern',
+      'fibonacci', 'ma', 'rsi', 'macd', 'bollinger', 'institutional',
+      'liquidity', 'breakout', 'breakdown', 'consolidation', 'divergence'
     ];
     const keywordMatches = insightKeywords.filter(keyword => reasoning.includes(keyword)).length;
     return keywordMatches >= 2 && reasoning.length > 60;

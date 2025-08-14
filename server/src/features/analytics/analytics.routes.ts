@@ -1,79 +1,48 @@
 import { Router } from 'express';
 import { analyticsController } from './analytics.controller';
-import { authMiddleware } from '@/shared/middleware/auth.middleware';
+import { authMiddleware, adminMiddleware } from '@/shared/middleware/auth.middleware';
 import { z } from 'zod';
 import { validateQuery } from '@/shared/middleware/validation.middleware';
 
-const router = Router();
-
 const timeframeSchema = z.object({
-  timeframe: z.enum(['24h', '7d', '30d', '90d', '1y']).optional()
+  timeframe: z.enum(['24h', '7d', '30d', '90d', '1y']).optional(),
 });
 
 const topPerformersSchema = z.object({
   timeframe: z.enum(['24h', '7d', '30d', '90d', '1y']).optional(),
-  type: z.enum(['topTraders', 'topCreators', 'bestPerformingSymbols', 'mostPopularAssets', 'all']).default('all')
+  type: z.enum(['topTraders', 'topCreators', 'bestPerformingSymbols', 'mostPopularAssets', 'all']).default('all'),
 });
 
-router.use(authMiddleware);
+/** /api/analytics (auth required) */
+const analyticsRouter = Router();
+analyticsRouter.use(authMiddleware);
 
-router.get(
-  '/overview',
-  analyticsController.getPlatformOverview
-);
+analyticsRouter.get('/overview', analyticsController.getPlatformOverview);
+analyticsRouter.get('/signals', validateQuery(timeframeSchema), analyticsController.getSignalAnalytics);
+analyticsRouter.get('/trading', validateQuery(timeframeSchema), analyticsController.getTradingAnalytics);
+analyticsRouter.get('/users',   validateQuery(timeframeSchema), analyticsController.getUserAnalytics);
+analyticsRouter.get('/ip',      validateQuery(timeframeSchema), analyticsController.getIPAnalytics);
+analyticsRouter.get('/detailed', validateQuery(timeframeSchema), analyticsController.getDetailedAnalytics);
+analyticsRouter.get('/performance', validateQuery(timeframeSchema), analyticsController.getPerformanceMetrics);
+analyticsRouter.get('/top-performers', validateQuery(topPerformersSchema), analyticsController.getTopPerformers);
+analyticsRouter.get('/revenue', validateQuery(timeframeSchema), analyticsController.getRevenueAnalytics);
+analyticsRouter.get('/market',  validateQuery(timeframeSchema), analyticsController.getMarketAnalytics);
 
-router.get(
-  '/signals',
-  validateQuery(timeframeSchema),
-  analyticsController.getSignalAnalytics
-);
+/** /api/admin/analytics (admin only) */
+const adminAnalyticsRouter = Router();
+adminAnalyticsRouter.use(authMiddleware);
+adminAnalyticsRouter.use(adminMiddleware);
 
-router.get(
-  '/trading',
-  validateQuery(timeframeSchema),
-  analyticsController.getTradingAnalytics
-);
+adminAnalyticsRouter.get('/overview', analyticsController.getPlatformOverview);
+adminAnalyticsRouter.get('/signals', validateQuery(timeframeSchema), analyticsController.getSignalAnalytics);
+adminAnalyticsRouter.get('/trading', validateQuery(timeframeSchema), analyticsController.getTradingAnalytics);
+adminAnalyticsRouter.get('/users',   validateQuery(timeframeSchema), analyticsController.getUserAnalytics);
+adminAnalyticsRouter.get('/ip',      validateQuery(timeframeSchema), analyticsController.getIPAnalytics);
+adminAnalyticsRouter.get('/detailed', validateQuery(timeframeSchema), analyticsController.getDetailedAnalytics);
+adminAnalyticsRouter.get('/performance', validateQuery(timeframeSchema), analyticsController.getPerformanceMetrics);
+adminAnalyticsRouter.get('/top-performers', validateQuery(topPerformersSchema), analyticsController.getTopPerformers);
+adminAnalyticsRouter.get('/revenue', validateQuery(timeframeSchema), analyticsController.getRevenueAnalytics);
+adminAnalyticsRouter.get('/market',  validateQuery(timeframeSchema), analyticsController.getMarketAnalytics);
 
-router.get(
-  '/users',
-  validateQuery(timeframeSchema),
-  analyticsController.getUserAnalytics
-);
-
-router.get(
-  '/ip',
-  validateQuery(timeframeSchema),
-  analyticsController.getIPAnalytics
-);
-
-router.get(
-  '/detailed',
-  validateQuery(timeframeSchema),
-  analyticsController.getDetailedAnalytics
-);
-
-router.get(
-  '/performance',
-  validateQuery(timeframeSchema),
-  analyticsController.getPerformanceMetrics
-);
-
-router.get(
-  '/top-performers',
-  validateQuery(topPerformersSchema),
-  analyticsController.getTopPerformers
-);
-
-router.get(
-  '/revenue',
-  validateQuery(timeframeSchema),
-  analyticsController.getRevenueAnalytics
-);
-
-router.get(
-  '/market',
-  validateQuery(timeframeSchema),
-  analyticsController.getMarketAnalytics
-);
-
-export default router;
+export default analyticsRouter;
+export { adminAnalyticsRouter };
