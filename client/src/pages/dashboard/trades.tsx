@@ -35,10 +35,10 @@ export default function Trading() {
     }
   };
 
-  const handleExecuteTrade = (signal: Signal) => {
-    setSelectedSignal(signal);
-    setShowExecuteModal(true);
-  };
+  // const handleExecuteTrade = (signal: Signal) => {
+  //   setSelectedSignal(signal);
+  //   setShowExecuteModal(true);
+  // };
 
   const handleTradeSuccess = () => {
     loadPositions();
