@@ -8,8 +8,8 @@ Platypus is a trading platform that combines artificial intelligence, human expe
 
 Platypus bridges the gap between AI-generated trading signals and human trading expertise by creating a marketplace where:
 
-- **AI generates high-quality trading signals** using advanced market analysis
-- **Human traders can improve these signals** through their expertise
+- **AI generates high-quality trading signals as parent ipNFTs** using advanced market analysis
+- **Human traders can improve these signals to earn derivative ipNFT** through their expertise
 - **All signals are minted as IP NFTs** on the Camp Network blockchain
 - **Revenue is shared** between original creators and signal improvers
 - **Trading is executed** directly through integrated exchange APIs
