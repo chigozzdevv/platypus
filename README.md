@@ -31,7 +31,7 @@ Platypus bridges the gap between AI-generated trading signals and human trading 
 - **Database**: MongoDB with Mongoose ODM
 - **Authentication**: JWT + Camp Network Origin integration
 - **Trading**: Hyperliquid exchange API integration
-- **AI**: OpenAI GPT-4/GPT-4o for signal generation
+- **AI**: OpenAI GPT-4/GPT-4o (context analysis) and technical pattern analysis for signal generation
 - **Security**: Helmet, CORS, rate limiting
 
 ## 🚀 Key Features
@@ -50,7 +50,7 @@ Platypus bridges the gap between AI-generated trading signals and human trading 
 
 ### 💎 IP NFT Marketplace
 - **Camp Network Integration**: Signals minted as IP NFTs with licensing terms
-- **Access Control**: Token-gated access to premium signals
+- **Access Control**: Token-gated access to improved signals
 - **Royalty System**: Automated revenue distribution
 - **IPFS Storage**: Decentralized metadata storage via Pinata
 
