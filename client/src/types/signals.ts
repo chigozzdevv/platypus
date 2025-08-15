@@ -40,18 +40,37 @@ export interface CreateSignalRequest {
   accountBalance?: number;
 }
 
+export type NumericOrComposite =
+  | number
+  | null
+  | undefined
+  | {
+      entryPrice?: number;
+      stopLoss?: number;
+      takeProfit?: number;
+      [k: string]: number | undefined;
+    };
+
 export interface ImproveSignalRequest {
-  improvementType: 'entry-adjustment' | 'stop-loss-adjustment' | 'take-profit-adjustment' | 'analysis-enhancement';
-  originalValue: number;
-  improvedValue: number;
+  improvementType:
+    | 'entry-adjustment'
+    | 'stop-loss-adjustment'
+    | 'take-profit-adjustment'
+    | 'analysis-enhancement';
+  originalValue: NumericOrComposite;
+  improvedValue: NumericOrComposite;
   reasoning: string;
 }
 
 export interface SignalImprovement {
   id: string;
-  improvementType: 'entry-adjustment' | 'stop-loss-adjustment' | 'take-profit-adjustment' | 'analysis-enhancement';
-  originalValue: number;
-  improvedValue: number;
+  improvementType:
+    | 'entry-adjustment'
+    | 'stop-loss-adjustment'
+    | 'take-profit-adjustment'
+    | 'analysis-enhancement';
+  originalValue: NumericOrComposite;
+  improvedValue: NumericOrComposite;
   reasoning: string;
   qualityScore: number;
   registeredAsIP: boolean;

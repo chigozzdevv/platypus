@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Check, AlertCircle, Zap } from 'lucide-react';
+import { X, AlertCircle, Zap, Loader2, CheckCircle2 } from 'lucide-react';
 import { signalsService } from '@/services/signals';
 import type { Signal, ImproveSignalRequest } from '@/types/signals';
 
@@ -11,110 +11,183 @@ interface ImprovementModalProps {
   onSuccess: () => void;
 }
 
-export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }: ImprovementModalProps) {
-  const [improvementData, setImprovementData] = useState<ImproveSignalRequest>({
-    improvementType: 'entry-adjustment',
-    originalValue: signal.entryPrice,
-    improvedValue: signal.entryPrice,
-    reasoning: ''
-  });
-  const [qualityScore, setQualityScore] = useState<number | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [minting, setMinting] = useState(false);
-  const [canMint, setCanMint] = useState(false);
+type MultiForm = {
+  changeEntry: boolean;
+  changeStop: boolean;
+  changeTake: boolean;
+  extraAnalysis: boolean;
+  newEntry?: number | '';
+  newStop?: number | '';
+  newTake?: number | '';
+  reasoning: string;
+};
 
-  const handleImprovementChange = (field: keyof ImproveSignalRequest, value: any) => {
-    setImprovementData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    
-    // Reset quality score when data changes
+export default function ImprovementModal({
+  signal,
+  isOpen,
+  onClose,
+  onSuccess,
+}: ImprovementModalProps) {
+  const [form, setForm] = useState<MultiForm>({
+    changeEntry: false,
+    changeStop: false,
+    changeTake: false,
+    extraAnalysis: true,
+    newEntry: signal.entryPrice ?? '',
+    newStop: signal.stopLoss ?? '',
+    newTake: signal.takeProfit ?? '',
+    reasoning: '',
+  });
+
+  const [qualityScore, setQualityScore] = useState<number | null>(null);
+  const [canMint, setCanMint] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [minting, setMinting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasAnySelection = form.changeEntry || form.changeStop || form.changeTake || form.extraAnalysis;
+  const multiSelected =
+    Number(!!form.changeEntry) +
+      Number(!!form.changeStop) +
+      Number(!!form.changeTake) +
+      Number(!!form.extraAnalysis) >
+    1;
+
+  const disableEvaluate = useMemo(() => {
+    if (!hasAnySelection) return true;
+    if (form.changeEntry && (form.newEntry === '' || isNaN(Number(form.newEntry)))) return true;
+    if (form.changeStop && (form.newStop === '' || isNaN(Number(form.newStop)))) return true;
+    if (form.changeTake && (form.newTake === '' || isNaN(Number(form.newTake)))) return true;
+    if ((multiSelected || form.extraAnalysis) && form.reasoning.trim().length < 30) return true;
+    return false;
+  }, [form, hasAnySelection, multiSelected]);
+
+  function resetAssessment() {
     setQualityScore(null);
     setCanMint(false);
-  };
+    setError(null);
+  }
 
-  const checkImprovementQuality = async () => {
+  function update<K extends keyof MultiForm>(key: K, value: MultiForm[K]) {
+    setForm((s) => ({ ...s, [key]: value }));
+    resetAssessment();
+  }
+
+  function buildPayload(): ImproveSignalRequest {
+
+    if (multiSelected) {
+      const improved = {
+        entryPrice: form.changeEntry ? Number(form.newEntry) : signal.entryPrice,
+        stopLoss: form.changeStop ? Number(form.newStop) : signal.stopLoss,
+        takeProfit: form.changeTake ? Number(form.newTake) : signal.takeProfit,
+      };
+      const original = {
+        entryPrice: signal.entryPrice,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+      };
+      const reasoning =
+        form.reasoning ||
+        [
+          'Consolidated improvement:',
+          form.changeEntry ? `• Entry → ${improved.entryPrice}` : null,
+          form.changeStop ? `• Stop Loss → ${improved.stopLoss}` : null,
+          form.changeTake ? `• Take Profit → ${improved.takeProfit}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+      return {
+        improvementType: 'analysis-enhancement',
+        originalValue: original,
+        improvedValue: improved,
+        reasoning,
+      };
+    }
+
+    if (form.changeEntry) {
+      return {
+        improvementType: 'entry-adjustment',
+        originalValue: signal.entryPrice,
+        improvedValue: Number(form.newEntry),
+        reasoning: form.reasoning,
+      };
+    }
+    if (form.changeStop) {
+      return {
+        improvementType: 'stop-loss-adjustment',
+        originalValue: signal.stopLoss,
+        improvedValue: Number(form.newStop),
+        reasoning: form.reasoning,
+      };
+    }
+    if (form.changeTake) {
+      return {
+        improvementType: 'take-profit-adjustment',
+        originalValue: signal.takeProfit,
+        improvedValue: Number(form.newTake),
+        reasoning: form.reasoning,
+      };
+    }
+
+    return {
+      improvementType: 'analysis-enhancement',
+      originalValue: null,
+      improvedValue: null,
+      reasoning: form.reasoning,
+    };
+  }
+
+  async function handleCheckQuality() {
     setChecking(true);
+    setError(null);
+    setQualityScore(null);
+    setCanMint(false);
     try {
-      // Submit improvement first to get quality score
-      await signalsService.improveSignal(signal.id, improvementData);
-      
-      // Simulate quality assessment (in real implementation, this would come from the server)
-      const score = calculateQualityScore(improvementData);
-      setQualityScore(score);
-      setCanMint(score >= 50);
-      
-      if (score >= 50) {
-        onSuccess(); // Refresh parent data
-      }
-    } catch (error: any) {
-      console.error('Failed to submit improvement:', error);
-      if (error.message.includes('quality too low')) {
-        const scoreMatch = error.message.match(/\((\d+)\/100\)/);
-        if (scoreMatch) {
-          setQualityScore(parseInt(scoreMatch[1]));
-          setCanMint(false);
-        }
-      }
+      const payload = buildPayload();
+      const res = await signalsService.checkImprovementQuality(signal.id, payload);
+      setQualityScore(res.qualityScore);
+      setCanMint(!!res.canMint);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to evaluate improvement.');
     } finally {
       setChecking(false);
     }
-  };
+  }
 
-  const handleMintImprovement = async () => {
-    setMinting(true);
+  async function handleSubmitImprovement() {
+    setSubmitting(true);
+    setError(null);
     try {
-      // Find the improvement index (it should be the last one added)
-      const updatedSignal = await signalsService.getSignal(signal.id);
-      const improvementIndex = (updatedSignal.signal.improvements?.length || 1) - 1;
-      
-      await signalsService.mintImprovement(signal.id, improvementIndex);
+      const payload = buildPayload();
+      await signalsService.improveSignal(signal.id, payload);
+      onSuccess(); // refresh lists
+    } catch (e: any) {
+      setError(e?.message || 'Failed to submit improvement.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleMintDerivative() {
+    setMinting(true);
+    setError(null);
+    try {
+      // server only allows one improvement per signal; it will be index 0
+      await signalsService.mintImprovement(signal.id, 0);
       onSuccess();
       onClose();
-    } catch (error) {
-      console.error('Failed to mint improvement:', error);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to mint derivative.');
     } finally {
       setMinting(false);
     }
-  };
+  }
 
-  const calculateQualityScore = (improvement: ImproveSignalRequest): number => {
-    let score = 0;
-    
-    // Reasoning quality (40 points)
-    if (improvement.reasoning.length >= 50) score += 20;
-    if (improvement.reasoning.length >= 100) score += 10;
-    if (improvement.reasoning.length >= 150) score += 10;
-    
-    // Value change significance (30 points)
-    const changePercent = Math.abs((improvement.improvedValue - improvement.originalValue) / improvement.originalValue);
-    if (changePercent > 0.01) score += 15; // > 1% change
-    if (changePercent > 0.02) score += 15; // > 2% change
-    
-    // Technical keywords (20 points)
-    const technicalTerms = ['support', 'resistance', 'volume', 'momentum', 'rsi', 'macd', 'fibonacci'];
-    const termsUsed = technicalTerms.filter(term => 
-      improvement.reasoning.toLowerCase().includes(term)
-    ).length;
-    score += Math.min(20, termsUsed * 3);
-    
-    // Grammar and structure (10 points)
-    if (improvement.reasoning.includes('.')) score += 5;
-    if (improvement.reasoning.split(' ').length >= 15) score += 5;
-    
-    return Math.min(100, score);
-  };
-
-  const getOriginalValue = () => {
-    switch (improvementData.improvementType) {
-      case 'entry-adjustment': return signal.entryPrice;
-      case 'stop-loss-adjustment': return signal.stopLoss;
-      case 'take-profit-adjustment': return signal.takeProfit;
-      case 'analysis-enhancement': return signal.analysis.technicalAnalysis;
-      default: return 0;
-    }
-  };
+  const originalEntry = signal.entryPrice;
+  const originalStop = signal.stopLoss;
+  const originalTake = signal.takeProfit;
 
   return (
     <AnimatePresence>
@@ -127,7 +200,7 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
             className="absolute inset-0 bg-black bg-opacity-50"
             onClick={onClose}
           />
-          
+
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -137,139 +210,219 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
             <div className="flex items-center justify-between p-6 border-b border-neutral-200">
               <div>
                 <h2 className="text-xl font-bold text-neutral-900">Improve Signal</h2>
-                <p className="text-sm text-neutral-600">{signal.symbol} - Add your expertise</p>
+                <p className="text-sm text-neutral-600">
+                  {signal.symbol} — Select changes, justify, then evaluate.
+                </p>
               </div>
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-              >
+              <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              <div className="space-y-6">
-                {/* Improvement Type */}
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Improvement Type
-                  </label>
-                  <select
-                    value={improvementData.improvementType}
-                    onChange={(e) => handleImprovementChange('improvementType', e.target.value)}
-                    className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="entry-adjustment">Entry Price Adjustment</option>
-                    <option value="stop-loss-adjustment">Stop Loss Adjustment</option>
-                    <option value="take-profit-adjustment">Take Profit Adjustment</option>
-                    <option value="analysis-enhancement">Analysis Enhancement</option>
-                  </select>
-                </div>
-
-                {/* Value Adjustment */}
-                {improvementData.improvementType !== 'analysis-enhancement' && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-2">
-                        Original Value
-                      </label>
-                      <input
-                        type="number"
-                        value={getOriginalValue()}
-                        disabled
-                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg bg-neutral-50"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-2">
-                        Improved Value
-                      </label>
-                      <input
-                        type="number"
-                        value={improvementData.improvedValue}
-                        onChange={(e) => handleImprovementChange('improvedValue', Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)] space-y-6">
+              {/* Select fields to change */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="flex items-center gap-2 rounded-lg border p-3">
+                  <input
+                    type="checkbox"
+                    checked={form.changeEntry}
+                    onChange={(e) => update('changeEntry', e.target.checked)}
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">Entry</div>
+                    <div className="text-xs text-neutral-500">Current: ${originalEntry}</div>
+                  </div>
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border p-3">
+                  <input
+                    type="checkbox"
+                    checked={form.changeStop}
+                    onChange={(e) => update('changeStop', e.target.checked)}
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">Stop Loss</div>
+                    <div className="text-xs text-neutral-500">
+                      Current: {originalStop !== undefined && originalStop !== null ? `$${originalStop}` : '—'}
                     </div>
                   </div>
-                )}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border p-3">
+                  <input
+                    type="checkbox"
+                    checked={form.changeTake}
+                    onChange={(e) => update('changeTake', e.target.checked)}
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">Take Profit</div>
+                    <div className="text-xs text-neutral-500">
+                      Current: {originalTake !== undefined && originalTake !== null ? `$${originalTake}` : '—'}
+                    </div>
+                  </div>
+                </label>
+              </div>
 
-                {/* Reasoning */}
+              {(form.changeEntry || form.changeStop || form.changeTake) && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {form.changeEntry && (
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 mb-2">New Entry</label>
+                      <input
+                        type="number"
+                        value={form.newEntry as any}
+                        onChange={(e) => update('newEntry', e.target.value ? Number(e.target.value) : '')}
+                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 1234.56"
+                      />
+                    </div>
+                  )}
+                  {form.changeStop && (
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 mb-2">New Stop Loss</label>
+                      <input
+                        type="number"
+                        value={form.newStop as any}
+                        onChange={(e) => update('newStop', e.target.value ? Number(e.target.value) : '')}
+                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 1180.00"
+                      />
+                    </div>
+                  )}
+                  {form.changeTake && (
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 mb-2">New Take Profit</label>
+                      <input
+                        type="number"
+                        value={form.newTake as any}
+                        onChange={(e) => update('newTake', e.target.value ? Number(e.target.value) : '')}
+                        className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 1320.00"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 rounded-lg border p-3">
+                <input
+                  type="checkbox"
+                  checked={form.extraAnalysis}
+                  onChange={(e) => update('extraAnalysis', e.target.checked)}
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium">Add analysis / justification</div>
+                  <div className="text-xs text-neutral-500">Boosts quality score</div>
+                </div>
+              </label>
+
+              {form.extraAnalysis && (
                 <div>
                   <label className="block text-sm font-medium text-neutral-700 mb-2">
                     Improvement Reasoning
                   </label>
                   <textarea
-                    value={improvementData.reasoning}
-                    onChange={(e) => handleImprovementChange('reasoning', e.target.value)}
-                    placeholder="Explain your improvement with technical analysis, market insights, or other relevant factors..."
+                    value={form.reasoning}
+                    onChange={(e) => update('reasoning', e.target.value)}
+                    placeholder="Explain the adjustments with TA/market context (support/resistance, momentum, volume, risk/reward, etc.)"
                     rows={6}
                     className="w-full px-3 py-2 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <p className="text-sm text-neutral-500 mt-1">
-                    {improvementData.reasoning.length}/1000 characters
+                  <p className="text-sm text-neutral-500 mt-1">{form.reasoning.length}/1000 characters</p>
+                </div>
+              )}
+
+              {error && (
+                <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              {qualityScore !== null && (
+                <div
+                  className={`p-4 rounded-lg border ${
+                    canMint ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'
+                  }`}
+                >
+                  <div className="flex items-center mb-2">
+                    {canMint ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-600 mr-2" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-orange-600 mr-2" />
+                    )}
+                    <h3 className={`font-semibold ${canMint ? 'text-green-900' : 'text-orange-900'}`}>
+                      Quality Assessment: {qualityScore}/100
+                    </h3>
+                  </div>
+                  <p className={`${canMint ? 'text-green-800' : 'text-orange-800'} text-sm`}>
+                    {canMint
+                      ? 'Great! You can submit and mint this as a derivative IP.'
+                      : 'Needs stronger justification or more substantive adjustments.'}
                   </p>
                 </div>
+              )}
+            </div>
 
-                {/* Quality Assessment Result */}
-                {qualityScore !== null && (
-                  <div className={`p-4 rounded-lg border ${
-                    qualityScore >= 50 
-                      ? 'bg-green-50 border-green-200' 
-                      : 'bg-red-50 border-red-200'
-                  }`}>
-                    <div className="flex items-center mb-2">
-                      {qualityScore >= 50 ? (
-                        <Check className="w-5 h-5 text-green-600 mr-2" />
-                      ) : (
-                        <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-                      )}
-                      <h3 className={`font-semibold ${
-                        qualityScore >= 50 ? 'text-green-900' : 'text-red-900'
-                      }`}>
-                        Quality Assessment: {qualityScore}/100
-                      </h3>
-                    </div>
-                    <p className={`text-sm ${
-                      qualityScore >= 50 ? 'text-green-800' : 'text-red-800'
-                    }`}>
-                      {qualityScore >= 50 
-                        ? 'Great! Your improvement meets quality standards and can be minted as IP.'
-                        : 'Quality too low. Please provide more detailed reasoning and substantial improvements.'
-                      }
-                    </p>
-                  </div>
-                )}
+            <div className="flex items-center justify-between gap-3 border-t p-6">
+              <div className="text-xs text-neutral-500">
+                Parent minted:{' '}
+                {signal.registeredAsIP && signal.ipTokenId ? `Yes (#${signal.ipTokenId})` : 'No'}
+              </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-3">
-                  {qualityScore === null ? (
+              <div className="flex gap-3">
+                {qualityScore === null ? (
+                  <button
+                    onClick={handleCheckQuality}
+                    disabled={disableEvaluate || checking}
+                    className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center disabled:opacity-50"
+                  >
+                    {checking ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Checking Quality...
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 mr-2" />
+                        Check Improvement Impact
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <>
                     <button
-                      onClick={checkImprovementQuality}
-                      disabled={checking || !improvementData.reasoning.trim()}
-                      className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center disabled:opacity-50"
+                      onClick={handleSubmitImprovement}
+                      disabled={submitting || !hasAnySelection}
+                      className="flex-1 bg-neutral-900 text-white py-3 px-4 rounded-lg hover:bg-neutral-800 transition-colors font-medium disabled:opacity-50"
                     >
-                      {checking ? (
+                      {submitting ? (
                         <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                          Checking Quality...
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Submitting...
                         </>
                       ) : (
-                        <>
-                          <AlertCircle className="w-4 h-4 mr-2" />
-                          Check Improvement Impact
-                        </>
+                        'Submit Improvement'
                       )}
                     </button>
-                  ) : canMint ? (
+
                     <button
-                      onClick={handleMintImprovement}
-                      disabled={minting}
-                      className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center disabled:opacity-50"
+                      onClick={handleMintDerivative}
+                      disabled={
+                        minting ||
+                        !canMint ||
+                        !signal.registeredAsIP ||
+                        !signal.ipTokenId
+                      }
+                      className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center"
+                      title={
+                        !signal.registeredAsIP
+                          ? 'Original must be minted first'
+                          : !canMint
+                          ? 'Quality not high enough'
+                          : 'Mint derivative'
+                      }
                     >
                       {minting ? (
                         <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           Minting IP...
                         </>
                       ) : (
@@ -279,25 +432,15 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                         </>
                       )}
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setQualityScore(null);
-                        setCanMint(false);
-                      }}
-                      className="flex-1 bg-orange-600 text-white py-3 px-4 rounded-lg hover:bg-orange-700 transition-colors font-medium"
-                    >
-                      Revise Improvement
-                    </button>
-                  )}
-                  
-                  <button
-                    onClick={onClose}
-                    className="px-6 py-3 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors font-medium"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                  </>
+                )}
+
+                <button
+                  onClick={onClose}
+                  className="px-6 py-3 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </motion.div>

@@ -1,15 +1,21 @@
+// src/services/camp.ts
 import { createWalletClient, custom, http } from 'viem';
 
 type Address = `0x${string}`;
 
 type LicenseTermsSDK = {
-  price: bigint;  
-  duration: number;  
-  royaltyBps: number; 
+  price: bigint;
+  duration: number;
+  royaltyBps: number;
   paymentToken: Address;
 };
 
-class CampService {
+function clampBps(n: number) {
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(10000, Math.floor(n)));
+}
+
+export class CampService {
   private _viem: any | null = null;
   private _jwt: string | null = null;
   private _wallet: Address | null = null;
@@ -41,7 +47,6 @@ class CampService {
   }
 
   private async ensureViemClient(): Promise<any> {
-
     if (this._viem?.getAddresses) {
       try {
         const addrs = await this._viem.getAddresses();
@@ -74,7 +79,7 @@ class CampService {
   }
 
   private async getWalletAddress(): Promise<Address> {
-    if (this._wallet?.startsWith("0x")) return this._wallet;
+    if (this._wallet?.startsWith('0x')) return this._wallet;
 
     try {
       const viem = await this.ensureViemClient();
@@ -87,7 +92,7 @@ class CampService {
 
     const eip1193: any = (window as any).ethereum;
     if (eip1193?.request) {
-      const accs: string[] = await eip1193.request({ method: "eth_requestAccounts" });
+      const accs: string[] = await eip1193.request({ method: 'eth_requestAccounts' });
       const a = accs?.[0];
       if (a) {
         this._wallet = a as Address;
@@ -95,34 +100,38 @@ class CampService {
       }
     }
 
-    throw new Error("No wallet address");
+    throw new Error('No wallet address');
   }
 
-  private licenseSDK(): LicenseTermsSDK {
+  private licenseBase(): LicenseTermsSDK {
     return {
       price: BigInt(0),
       duration: 30 * 24 * 60 * 60,
       royaltyBps: 10000,
-      paymentToken: "0x0000000000000000000000000000000000000000",
+      paymentToken: '0x0000000000000000000000000000000000000000',
     };
   }
 
   private async pinataUploadJSON(obj: any, name: string) {
-    const JWT = String(import.meta.env.VITE_PINATA_JWT || "");
-    const gateway = String(import.meta.env.VITE_PINATA_GATEWAY || "").replace(/\/$/, "");
-    if (!JWT) throw new Error("Missing VITE_PINATA_JWT");
+    const JWT = String(import.meta.env.VITE_PINATA_JWT || '');
+    const gateway = String(import.meta.env.VITE_PINATA_GATEWAY || '').replace(/\/$/, '');
+    if (!JWT) throw new Error('Missing VITE_PINATA_JWT');
 
-    const res = await fetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${JWT}`, "Content-Type": "application/json" },
+    const res = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${JWT}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ pinataContent: obj, pinataMetadata: { name } }),
     });
 
     const text = await res.text();
     let json: any = null;
-    try { json = JSON.parse(text); } catch { throw new Error(text?.slice(0, 300) || "Pinata error"); }
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error(text?.slice(0, 300) || 'Pinata error');
+    }
     if (!res.ok) {
-      const msg = json?.error?.reason || json?.error || json?.message || "Pinata upload failed";
+      const msg = json?.error?.reason || json?.error || json?.message || 'Pinata upload failed';
       throw new Error(msg);
     }
 
@@ -131,11 +140,11 @@ class CampService {
     return { cid, url };
   }
 
-  private async generateSignalPNGPoster(meta: {
-    symbol: string;
-    side: string;
-    confidence: number;
-    entryPrice: number;
+  private async buildPosterPNG(meta: {
+    title: string;
+    subtitle?: string;
+    details?: string[];
+    accent?: 'green' | 'red' | 'blue';
   }): Promise<File> {
     const width = 1024;
     const height = 576;
@@ -153,25 +162,41 @@ class CampService {
       canvas = c;
       ctx = (canvas as HTMLCanvasElement).getContext('2d');
     }
-    if (!ctx) throw new Error("Canvas context not available");
+    if (!ctx) throw new Error('Canvas context not available');
 
-    (ctx as any).fillStyle = "#0b1020";
+    const accents: Record<string, string> = {
+      green: '#16a34a',
+      red: '#dc2626',
+      blue: '#2563eb',
+    };
+    const bar = accents[meta.accent || 'blue'] || '#2563eb';
+
+    (ctx as any).fillStyle = '#0b1020';
     (ctx as any).fillRect(0, 0, width, height);
 
-    (ctx as any).fillStyle = meta.side.toLowerCase() === 'long' ? "#16a34a" : "#dc2626";
+    (ctx as any).fillStyle = bar;
     (ctx as any).fillRect(0, height - 10, width, 10);
 
-    (ctx as any).fillStyle = "#ffffff";
-    (ctx as any).font = "bold 72px system-ui, -apple-system, Segoe UI, Roboto, Inter";
-    (ctx as any).textBaseline = "top";
-    (ctx as any).fillText(`${meta.symbol} • ${meta.side.toUpperCase()}`, 48, 48);
+    (ctx as any).fillStyle = '#ffffff';
+    (ctx as any).font = 'bold 64px system-ui, -apple-system, Segoe UI, Roboto, Inter';
+    (ctx as any).textBaseline = 'top';
+    (ctx as any).fillText(meta.title, 48, 48);
 
-    (ctx as any).font = "normal 36px system-ui, -apple-system, Segoe UI, Roboto, Inter";
-    (ctx as any).fillStyle = "#cbd5e1";
-    (ctx as any).fillText(`Confidence: ${meta.confidence}%`, 48, 140);
-    (ctx as any).fillText(`Entry: $${meta.entryPrice}`, 48, 196);
+    if (meta.subtitle) {
+      (ctx as any).font = '600 36px system-ui, -apple-system, Segoe UI, Roboto, Inter';
+      (ctx as any).fillStyle = '#cbd5e1';
+      (ctx as any).fillText(meta.subtitle, 48, 120);
+    }
 
-    const type = "image/png";
+    (ctx as any).font = 'normal 28px system-ui, -apple-system, Segoe UI, Roboto, Inter';
+    (ctx as any).fillStyle = '#94a3b8';
+    let y = 184;
+    (meta.details || []).forEach((d) => {
+      (ctx as any).fillText(d, 48, y);
+      y += 44;
+    });
+
+    const type = 'image/png';
     const toBlob = (): Promise<Blob> => {
       if ('convertToBlob' in canvas) {
         return (canvas as OffscreenCanvas).convertToBlob({ type });
@@ -187,7 +212,7 @@ class CampService {
               for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
               resolve(new Blob([arr], { type }));
             } catch {
-              reject(new Error("Failed to encode PNG"));
+              reject(new Error('Failed to encode PNG'));
             }
           }
         }, type);
@@ -198,8 +223,21 @@ class CampService {
     const sizeMB = blob.size / (1024 * 1024);
     if (sizeMB > 10) throw new Error(`File too large: ${sizeMB.toFixed(2)}MB`);
 
-    const name = `signal-${meta.symbol}-${Date.now()}.png`;
+    const name = `poster-${Date.now()}.png`;
     return new File([blob], name, { type });
+  }
+
+  async checkAccess(tokenId: string | number | bigint): Promise<boolean> {
+    try {
+      const camp = (window as any).__campAuth || {};
+      const origin = camp.origin;
+      if (!origin) return true;
+      const user = await this.getWalletAddress();
+      const ok = await origin.hasAccess(BigInt(tokenId as any), user);
+      return !!ok;
+    } catch {
+      return false;
+    }
   }
 
   async mintSignalAsParent(signal: {
@@ -213,7 +251,6 @@ class CampService {
     aiModel?: string;
     analysis: { technicalAnalysis: string; marketAnalysis: string };
   }) {
-
     const wallet = await this.getWalletAddress();
     const viem = await this.ensureViemClient();
 
@@ -232,27 +269,101 @@ class CampService {
       },
       analysis: signal.analysis,
       owner: wallet,
+      kind: 'parent',
     };
 
     const pinned = await this.pinataUploadJSON(baseMeta, `signal-${signal.symbol}-${Date.now()}.json`);
-    const enrichedMeta = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
+    const enriched = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
 
-    const poster = await this.generateSignalPNGPoster({
-      symbol: signal.symbol,
-      side: signal.side,
-      confidence: signal.confidence,
-      entryPrice: signal.entryPrice,
+    const poster = await this.buildPosterPNG({
+      title: `${signal.symbol} • ${signal.side.toUpperCase()}`,
+      subtitle: `Confidence ${signal.confidence}%`,
+      details: [`Entry $${signal.entryPrice}`, `AI ${signal.aiModel || '—'}`],
+      accent: signal.side.toLowerCase() === 'long' ? 'green' : 'red',
     });
 
-    const campAuth = (window as any).__campAuth;
-    const origin = campAuth?.origin;
-    if (!origin) throw new Error("Origin SDK not ready. Connect with Camp Modal first.");
-    if (typeof origin.setViemClient === "function") origin.setViemClient(viem);
+    const camp = (window as any).__campAuth || {};
+    const origin = camp.origin;
+    if (!origin) throw new Error('Origin SDK not ready. Connect with Camp Modal first.');
+    if (typeof origin.setViemClient === 'function') origin.setViemClient(viem);
 
-    const license = this.licenseSDK();
-    const tokenIdStr: string = await origin.mintFile(poster, enrichedMeta, license, undefined, {
-      progressCallback: () => {},
+    const license = this.licenseBase();
+    const tokenIdStr: string = await origin.mintFile(poster, enriched, license);
+
+    return { tokenId: tokenIdStr, transactionHash: tokenIdStr };
+  }
+
+  async mintImprovement(
+    signal: any,
+    improvement: any,
+    opts?: { thresholdBps?: number; goodScore?: number }
+  ) {
+    const wallet = await this.getWalletAddress();
+    const viem = await this.ensureViemClient();
+
+    const parentIdRaw =
+      signal?.ipTokenId ?? signal?.parentTokenId ?? improvement?.parentTokenId;
+    if (!parentIdRaw) throw new Error('Parent token id is required');
+    const parentId = BigInt(parentIdRaw);
+
+    const score: number = Number(
+      improvement?.qualityScore ?? improvement?.score ?? improvement?.improvementScore ?? 0
+    );
+    const goodScore = opts?.goodScore ?? 70;
+    const improverBps = clampBps(score >= goodScore ? 6000 : 4000);
+    const parentBps = clampBps(10000 - improverBps);
+
+    const baseMeta = {
+      name: `${signal?.symbol || 'Asset'} Improvement`,
+      description: improvement?.description || 'User-submitted improvement',
+      attributes: {
+        parentTokenId: parentId.toString(),
+        symbol: signal?.symbol || null,
+        baseSide: signal?.side || null,
+        baseConfidence: signal?.confidence ?? null,
+        improvementScore: score,
+        createdAt: new Date().toISOString(),
+      },
+      improvement: {
+        notes: improvement?.notes ?? improvement?.description ?? '',
+        data: improvement?.data ?? null,
+        author: wallet,
+      },
+      revenueSplit: {
+        improverBps,
+        parentBps,
+        reason: 'improvement_score',
+        threshold: goodScore,
+      },
+      owner: wallet,
+      kind: 'derivative',
+    };
+
+    const pinned = await this.pinataUploadJSON(
+      baseMeta,
+      `improvement-${signal?.symbol || 'asset'}-${Date.now()}.json`
+    );
+    const enriched = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
+
+    const poster = await this.buildPosterPNG({
+      title: `${signal?.symbol || 'Asset'} • Improved`,
+      subtitle: `Score ${score}`,
+      details: [
+        `Improver Share ${Math.round(improverBps / 100)}%`,
+        `Parent Share ${Math.round(parentBps / 100)}%`,
+      ],
+      accent: 'blue',
     });
+
+    const camp = (window as any).__campAuth || {};
+    const origin = camp.origin;
+    if (!origin) throw new Error('Origin SDK not ready. Connect with Camp Modal first.');
+    if (typeof origin.setViemClient === 'function') origin.setViemClient(viem);
+
+    const license = this.licenseBase();
+    license.royaltyBps = improverBps;
+
+    const tokenIdStr: string = await origin.mintFile(poster, enriched, license, parentId);
 
     return { tokenId: tokenIdStr, transactionHash: tokenIdStr };
   }
