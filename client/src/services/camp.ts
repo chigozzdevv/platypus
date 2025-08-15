@@ -1,4 +1,3 @@
-// src/services/camp.ts
 import { createWalletClient, custom, http } from 'viem';
 
 type Address = `0x${string}`;
@@ -10,12 +9,7 @@ type LicenseTermsSDK = {
   paymentToken: Address;
 };
 
-function clampBps(n: number) {
-  if (Number.isNaN(n)) return 0;
-  return Math.max(0, Math.min(10000, Math.floor(n)));
-}
-
-export class CampService {
+class CampService {
   private _viem: any | null = null;
   private _jwt: string | null = null;
   private _wallet: Address | null = null;
@@ -103,7 +97,7 @@ export class CampService {
     throw new Error('No wallet address');
   }
 
-  private licenseBase(): LicenseTermsSDK {
+  private licenseSDK(): LicenseTermsSDK {
     return {
       price: BigInt(0),
       duration: 30 * 24 * 60 * 60,
@@ -140,11 +134,11 @@ export class CampService {
     return { cid, url };
   }
 
-  private async buildPosterPNG(meta: {
-    title: string;
-    subtitle?: string;
-    details?: string[];
-    accent?: 'green' | 'red' | 'blue';
+  private async generateSignalPNGPoster(meta: {
+    symbol: string;
+    side: string;
+    confidence: number;
+    entryPrice: number;
   }): Promise<File> {
     const width = 1024;
     const height = 576;
@@ -164,37 +158,21 @@ export class CampService {
     }
     if (!ctx) throw new Error('Canvas context not available');
 
-    const accents: Record<string, string> = {
-      green: '#16a34a',
-      red: '#dc2626',
-      blue: '#2563eb',
-    };
-    const bar = accents[meta.accent || 'blue'] || '#2563eb';
-
     (ctx as any).fillStyle = '#0b1020';
     (ctx as any).fillRect(0, 0, width, height);
 
-    (ctx as any).fillStyle = bar;
+    (ctx as any).fillStyle = meta.side.toLowerCase() === 'long' ? '#16a34a' : '#dc2626';
     (ctx as any).fillRect(0, height - 10, width, 10);
 
     (ctx as any).fillStyle = '#ffffff';
-    (ctx as any).font = 'bold 64px system-ui, -apple-system, Segoe UI, Roboto, Inter';
+    (ctx as any).font = 'bold 72px system-ui, -apple-system, Segoe UI, Roboto, Inter';
     (ctx as any).textBaseline = 'top';
-    (ctx as any).fillText(meta.title, 48, 48);
+    (ctx as any).fillText(`${meta.symbol} • ${meta.side.toUpperCase()}`, 48, 48);
 
-    if (meta.subtitle) {
-      (ctx as any).font = '600 36px system-ui, -apple-system, Segoe UI, Roboto, Inter';
-      (ctx as any).fillStyle = '#cbd5e1';
-      (ctx as any).fillText(meta.subtitle, 48, 120);
-    }
-
-    (ctx as any).font = 'normal 28px system-ui, -apple-system, Segoe UI, Roboto, Inter';
-    (ctx as any).fillStyle = '#94a3b8';
-    let y = 184;
-    (meta.details || []).forEach((d) => {
-      (ctx as any).fillText(d, 48, y);
-      y += 44;
-    });
+    (ctx as any).font = 'normal 36px system-ui, -apple-system, Segoe UI, Roboto, Inter';
+    (ctx as any).fillStyle = '#cbd5e1';
+    (ctx as any).fillText(`Confidence: ${meta.confidence}%`, 48, 140);
+    (ctx as any).fillText(`Entry: $${meta.entryPrice}`, 48, 196);
 
     const type = 'image/png';
     const toBlob = (): Promise<Blob> => {
@@ -223,21 +201,30 @@ export class CampService {
     const sizeMB = blob.size / (1024 * 1024);
     if (sizeMB > 10) throw new Error(`File too large: ${sizeMB.toFixed(2)}MB`);
 
-    const name = `poster-${Date.now()}.png`;
+    const name = `signal-${meta.symbol}-${Date.now()}.png`;
     return new File([blob], name, { type });
   }
 
-  async checkAccess(tokenId: string | number | bigint): Promise<boolean> {
-    try {
-      const camp = (window as any).__campAuth || {};
-      const origin = camp.origin;
-      if (!origin) return true;
-      const user = await this.getWalletAddress();
-      const ok = await origin.hasAccess(BigInt(tokenId as any), user);
-      return !!ok;
-    } catch {
-      return false;
-    }
+  private expToBigInt(expStr: string): bigint {
+    const s = expStr.toLowerCase();
+    const [mantStr, eStr] = s.split('e');
+    const exp = parseInt(eStr, 10);
+    const [intPart, fracPart = ''] = mantStr.split('.');
+    const digits = (intPart + fracPart).replace(/^0+/, '') || '0';
+    const scale = fracPart.length;
+    const shift = exp - scale;
+    if (shift < 0) throw new Error('parentId must be an integer');
+    const base = BigInt(digits || '0');
+    return base * (10n ** BigInt(shift));
+  }
+
+  private coerceParentId(value: any): bigint {
+    const raw = String(value ?? '').trim();
+    if (!raw) throw new Error('Missing parent token id');
+    if (/^0x[0-9a-f]+$/i.test(raw)) return BigInt(raw);
+    if (/e\+|e-/i.test(raw)) return this.expToBigInt(raw);
+    if (raw.includes('.')) throw new Error('parentId must be an integer');
+    return BigInt(raw);
   }
 
   async mintSignalAsParent(signal: {
@@ -269,103 +256,118 @@ export class CampService {
       },
       analysis: signal.analysis,
       owner: wallet,
-      kind: 'parent',
     };
 
     const pinned = await this.pinataUploadJSON(baseMeta, `signal-${signal.symbol}-${Date.now()}.json`);
-    const enriched = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
+    const enrichedMeta = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
 
-    const poster = await this.buildPosterPNG({
-      title: `${signal.symbol} • ${signal.side.toUpperCase()}`,
-      subtitle: `Confidence ${signal.confidence}%`,
-      details: [`Entry $${signal.entryPrice}`, `AI ${signal.aiModel || '—'}`],
-      accent: signal.side.toLowerCase() === 'long' ? 'green' : 'red',
+    const poster = await this.generateSignalPNGPoster({
+      symbol: signal.symbol,
+      side: signal.side,
+      confidence: signal.confidence,
+      entryPrice: signal.entryPrice,
     });
 
-    const camp = (window as any).__campAuth || {};
-    const origin = camp.origin;
+    const campAuth = (window as any).__campAuth;
+    const origin = campAuth?.origin;
     if (!origin) throw new Error('Origin SDK not ready. Connect with Camp Modal first.');
     if (typeof origin.setViemClient === 'function') origin.setViemClient(viem);
 
-    const license = this.licenseBase();
-    const tokenIdStr: string = await origin.mintFile(poster, enriched, license);
+    const license = this.licenseSDK();
+    const tokenIdStr: string = await origin.mintFile(poster, enrichedMeta, license, undefined, {
+      progressCallback: () => {},
+    });
 
     return { tokenId: tokenIdStr, transactionHash: tokenIdStr };
   }
 
   async mintImprovement(
-    signal: any,
-    improvement: any,
-    opts?: { thresholdBps?: number; goodScore?: number }
+    parentSignal: {
+      ipTokenId?: string;
+      symbol: string;
+      side: string;
+      confidence: number;
+      entryPrice: number;
+      stopLoss?: number;
+      takeProfit?: number;
+      aiModel?: string;
+      analysis: { technicalAnalysis: string; marketAnalysis: string };
+    },
+    improvement: {
+      improvementType: string;
+      originalValue: any;
+      improvedValue: any;
+      reasoning: string;
+      revenueShare?: number;
+      qualityScore?: number;
+    }
   ) {
     const wallet = await this.getWalletAddress();
     const viem = await this.ensureViemClient();
 
-    const parentIdRaw =
-      signal?.ipTokenId ?? signal?.parentTokenId ?? improvement?.parentTokenId;
-    if (!parentIdRaw) throw new Error('Parent token id is required');
-    const parentId = BigInt(parentIdRaw);
-
-    const score: number = Number(
-      improvement?.qualityScore ?? improvement?.score ?? improvement?.improvementScore ?? 0
-    );
-    const goodScore = opts?.goodScore ?? 70;
-    const improverBps = clampBps(score >= goodScore ? 6000 : 4000);
-    const parentBps = clampBps(10000 - improverBps);
-
     const baseMeta = {
-      name: `${signal?.symbol || 'Asset'} Improvement`,
-      description: improvement?.description || 'User-submitted improvement',
+      name: `${parentSignal.symbol} ${parentSignal.side.toUpperCase()} Improvement`,
+      description: `Derivative improvement for ${parentSignal.symbol}`,
       attributes: {
-        parentTokenId: parentId.toString(),
-        symbol: signal?.symbol || null,
-        baseSide: signal?.side || null,
-        baseConfidence: signal?.confidence ?? null,
-        improvementScore: score,
+        parentSymbol: parentSignal.symbol,
+        parentSide: parentSignal.side,
+        parentTokenId: parentSignal.ipTokenId ?? null,
+        confidence: parentSignal.confidence,
+        entryPrice: parentSignal.entryPrice,
+        stopLoss: parentSignal.stopLoss ?? null,
+        takeProfit: parentSignal.takeProfit ?? null,
+        aiModel: parentSignal.aiModel ?? null,
+        improvementType: improvement.improvementType,
+        originalValue: improvement.originalValue,
+        improvedValue: improvement.improvedValue,
+        reasoning: improvement.reasoning,
+        revenueShare: improvement.revenueShare ?? 0.6,
+        qualityScore: improvement.qualityScore ?? null,
         createdAt: new Date().toISOString(),
       },
-      improvement: {
-        notes: improvement?.notes ?? improvement?.description ?? '',
-        data: improvement?.data ?? null,
-        author: wallet,
-      },
-      revenueSplit: {
-        improverBps,
-        parentBps,
-        reason: 'improvement_score',
-        threshold: goodScore,
-      },
+      analysis: parentSignal.analysis,
       owner: wallet,
-      kind: 'derivative',
     };
 
     const pinned = await this.pinataUploadJSON(
       baseMeta,
-      `improvement-${signal?.symbol || 'asset'}-${Date.now()}.json`
+      `improvement-${parentSignal.symbol}-${Date.now()}.json`
     );
-    const enriched = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
+    const enrichedMeta = { ...baseMeta, external_url: pinned.url, pinned_cid: pinned.cid };
 
-    const poster = await this.buildPosterPNG({
-      title: `${signal?.symbol || 'Asset'} • Improved`,
-      subtitle: `Score ${score}`,
-      details: [
-        `Improver Share ${Math.round(improverBps / 100)}%`,
-        `Parent Share ${Math.round(parentBps / 100)}%`,
-      ],
-      accent: 'blue',
+    const poster = await this.generateSignalPNGPoster({
+      symbol: parentSignal.symbol,
+      side: parentSignal.side,
+      confidence: parentSignal.confidence,
+      entryPrice: parentSignal.entryPrice,
     });
 
-    const camp = (window as any).__campAuth || {};
-    const origin = camp.origin;
+    const campAuth = (window as any).__campAuth;
+    const origin = campAuth?.origin;
     if (!origin) throw new Error('Origin SDK not ready. Connect with Camp Modal first.');
     if (typeof origin.setViemClient === 'function') origin.setViemClient(viem);
 
-    const license = this.licenseBase();
-    license.royaltyBps = improverBps;
+    const license = this.licenseSDK();
 
-    const tokenIdStr: string = await origin.mintFile(poster, enriched, license, parentId);
+    const parentIdBig = this.coerceParentId(parentSignal.ipTokenId);
+    const tokenIdStr: string = await origin.mintFile(poster, enrichedMeta, license, parentIdBig, {
+      progressCallback: () => {},
+    });
 
     return { tokenId: tokenIdStr, transactionHash: tokenIdStr };
+  }
+
+  async checkAccess(tokenId: string | number | bigint): Promise<boolean> {
+    const campAuth = (window as any).__campAuth;
+    const origin = campAuth?.origin;
+    if (!origin) return true;
+    try {
+      const me = await this.getWalletAddress();
+      const res = await origin.hasAccess(BigInt(String(tokenId)), me);
+      return !!res;
+    } catch {
+      return true;
+    }
   }
 }
 

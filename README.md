@@ -2,7 +2,7 @@
 
 **AI-Powered Trading Signals with Intellectual Property NFTs**
 
-Platypus is a revolutionary trading platform that combines artificial intelligence, human expertise, and blockchain technology to create, improve, and monetize trading signals as intellectual property (IP) NFTs.
+Platypus is a trading platform that combines artificial intelligence, human expertise, and blockchain technology to create, improve, and monetize trading signals as intellectual property (IP) NFTs.
 
 ## 🌟 Overview
 
