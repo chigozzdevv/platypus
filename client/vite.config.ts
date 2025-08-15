@@ -12,4 +12,14 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  server: {
+    host: 'localhost',
+    port: 3000,
+    strictPort: true,
+  },
+  preview: {
+    host: 'localhost',
+    port: 3000,
+    strictPort: true,
+  },
 })

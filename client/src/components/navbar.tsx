@@ -12,7 +12,7 @@ interface NavbarProps {
 
 export default function Navbar({ isMobileMenuOpen, setIsMobileMenuOpen }: NavbarProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const { user, logout } = useAuthStore();
+  const { user, logout, hasHydrated } = useAuthStore();
   const origin = useAuth();
   const navigate = useNavigate();
 
@@ -26,6 +26,12 @@ export default function Navbar({ isMobileMenuOpen, setIsMobileMenuOpen }: Navbar
     setIsUserMenuOpen(false);
     navigate('/auth', { replace: true });
   };
+
+  const displayWallet =
+    user?.walletAddress || (origin as any)?.walletAddress || null;
+
+  const username =
+    user?.username ?? (hasHydrated ? 'Trader' : '—');
 
   return (
     <nav className="fixed top-0 left-0 right-0 bg-white border-b border-neutral-200 z-30 h-16">
@@ -52,9 +58,11 @@ export default function Navbar({ isMobileMenuOpen, setIsMobileMenuOpen }: Navbar
               <User className="w-4 h-4 text-neutral-600" />
             </div>
             <div className="text-left mr-2 hidden sm:block">
-              <p className="text-sm font-medium text-neutral-900">{user?.username || 'Trader'}</p>
+              <p className="text-sm font-medium text-neutral-900">{username}</p>
               <p className="text-xs text-neutral-500">
-                {user?.walletAddress ? `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}` : 'Wallet connected'}
+                {displayWallet
+                  ? `${displayWallet.slice(0, 6)}...${displayWallet.slice(-4)}`
+                  : 'Wallet not connected'}
               </p>
             </div>
             <ChevronDown className="w-4 h-4 text-neutral-500" />

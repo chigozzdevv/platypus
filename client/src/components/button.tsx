@@ -13,6 +13,7 @@ interface ButtonProps {
   className?: string;
   showArrow?: boolean;
   disabled?: boolean;
+  title?: string;
 }
 
 export default function Button({
@@ -25,6 +26,7 @@ export default function Button({
   className = '',
   showArrow = false,
   disabled = false,
+  title,
 }: ButtonProps) {
   const baseStyles = 'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-500 overflow-hidden relative disabled:opacity-50 disabled:cursor-not-allowed';
   
@@ -76,7 +78,7 @@ export default function Button({
   
   if (to) {
     return (
-      <Link to={to} className={styles}>
+      <Link to={to} className={styles} title={title}>
         {buttonContent}
       </Link>
     );
@@ -84,14 +86,14 @@ export default function Button({
 
   if (href) {
     return (
-      <a href={href} className={styles}>
+      <a href={href} className={styles} title={title}>
         {buttonContent}
       </a>
     );
   }
   
   return (
-    <button onClick={onClick} className={styles} disabled={disabled}>
+    <button onClick={onClick} className={styles} disabled={disabled} title={title}>
       {buttonContent}
     </button>
   );

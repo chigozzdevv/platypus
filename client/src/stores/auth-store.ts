@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type { User } from '@/types/auth';
 import { authService } from '@/services/auth';
+import api from '@/services/api';
+
+const initialToken = localStorage.getItem('auth_token');
+if (initialToken) api.setToken(initialToken);
 
 interface AuthState {
   user: User | null;
@@ -17,15 +21,12 @@ interface AuthState {
   loadUser: () => Promise<void>;
 }
 
-const initialToken = localStorage.getItem('auth_token');
-const initialIsAdmin = localStorage.getItem('is_admin') === 'true';
-
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: initialToken,
   campJWT: localStorage.getItem('camp_jwt'),
   isAuthenticated: !!initialToken,
-  isAdmin: initialIsAdmin,
+  isAdmin: localStorage.getItem('is_admin') === 'true',
   isLoading: false,
   hasHydrated: !initialToken,
 
@@ -38,8 +39,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setToken: (token) => {
     set({ token, isAuthenticated: !!token });
-    if (token) localStorage.setItem('auth_token', token);
-    else localStorage.removeItem('auth_token');
+    api.setToken(token);
   },
 
   login: async (walletAddress: string, campJWT: string) => {
@@ -64,6 +64,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.setItem('camp_jwt', campJWT);
       localStorage.setItem('auth_token', response.token);
       localStorage.setItem('is_admin', String(isAdmin));
+      localStorage.setItem('camp_should_auto_connect', '1');
+      api.setToken(response.token);
       return { isAdmin };
     } catch (error) {
       set({ isLoading: false, hasHydrated: true });
@@ -84,7 +86,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('auth_token');
     localStorage.removeItem('is_admin');
     localStorage.removeItem('camp_auth');
+    localStorage.removeItem('camp_should_auto_connect');
     authService.logout();
+    api.setToken(null);
   },
 
   loadUser: async () => {
@@ -105,6 +109,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         hasHydrated: true,
       });
       localStorage.setItem('is_admin', String(isAdmin));
+      api.setToken(token);
     } catch {
       get().logout();
       set({ isLoading: false, hasHydrated: true });

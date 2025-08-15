@@ -1,13 +1,15 @@
+// src/pages/dashboard/admin.tsx
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Check, X, Eye, Coins, Plus, RefreshCw, Filter, Wallet } from 'lucide-react';
-import { useAuth, useAuthState, CampModal } from '@campnetwork/origin/react';
+import { Check, X, Eye, Coins, Plus, RefreshCw, Filter, Wallet, AlertCircle } from 'lucide-react';
+import { useAuth, useAuthState } from '@campnetwork/origin/react';
 import { adminService } from '@/services/admin';
-import { campService, setCampClients } from '@/services/camp';
+import type { PlatformAnalytics } from '@/services/admin';
 import type { Signal } from '@/types/signals';
 import Button from '@/components/button';
 import LoadingSpinner from '@/components/loading-spinner';
+import { campService } from '@/services/camp';
 
 interface FilterParams {
   minConfidence?: number;
@@ -25,42 +27,45 @@ export default function AdminDashboard() {
   const [showFilters, setShowFilters] = useState(false);
   const [generateCount, setGenerateCount] = useState(25);
   const [mintingSignalId, setMintingSignalId] = useState<string | null>(null);
-  const [showCampModal, setShowCampModal] = useState(false);
+  const [campConnectionError, setCampConnectionError] = useState<string | null>(null);
+
   const queryClient = useQueryClient();
-  
-  const { jwt, origin, viem } = useAuth();
-  const { authenticated } = useAuthState();
+
+  const { viem, walletAddress, jwt } = useAuth();
+  const { authenticated: originAuthed, loading } = useAuthState();
 
   useEffect(() => {
-    if (origin && viem) {
-      setCampClients({ origin, viem });
-      console.log('Camp Network clients initialized', { 
-        authenticated, 
-        hasOrigin: !!origin,
-        hasViem: !!viem,
-        hasJWT: !!jwt
-      });
+    try {
+      if (viem) campService.setClients({ viem });
+      if (jwt) campService.setJwt(jwt);
+      setCampConnectionError(null);
+    } catch {
+      setCampConnectionError('Failed to initialize Camp Network clients');
     }
-  }, [origin, viem, authenticated, jwt]);
+  }, [viem, jwt]);
 
-  const { data: pendingData, isLoading: loadingPending, refetch: refetchPending } = useQuery({
+  const isCampReady = originAuthed && !!walletAddress;
+
+  const { data: pendingData, isLoading: loadingPending, refetch: refetchPending } = useQuery<{ signals: Signal[]; total: number }>({
     queryKey: ['admin-signals-pending', filters],
     queryFn: () => adminService.getSignalsForReview(filters),
+    enabled: !loading,
   });
 
-  const { data: approvedData, isLoading: loadingApproved, refetch: refetchApproved } = useQuery({
+  const { data: approvedData, isLoading: loadingApproved, refetch: refetchApproved } = useQuery<{ signals: Signal[]; total: number }>({
     queryKey: ['admin-signals-approved'],
     queryFn: () => adminService.getApprovedForMinting(),
+    enabled: !loading,
   });
 
-  const { data: analytics } = useQuery({
+  const { data: analytics } = useQuery<PlatformAnalytics>({
     queryKey: ['platform-analytics'],
     queryFn: () => adminService.getPlatformAnalytics(),
+    enabled: !loading,
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ signalId, notes }: { signalId: string; notes?: string }) =>
-      adminService.approveSignal(signalId, notes),
+    mutationFn: ({ signalId, notes }: { signalId: string; notes?: string }) => adminService.approveSignal(signalId, notes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-signals-pending'] });
       queryClient.invalidateQueries({ queryKey: ['admin-signals-approved'] });
@@ -70,8 +75,7 @@ export default function AdminDashboard() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: ({ signalId, notes }: { signalId: string; notes: string }) =>
-      adminService.rejectSignal(signalId, notes),
+    mutationFn: ({ signalId, notes }: { signalId: string; notes: string }) => adminService.rejectSignal(signalId, notes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-signals-pending'] });
       setSelectedSignal(null);
@@ -80,9 +84,11 @@ export default function AdminDashboard() {
   });
 
   const mintMutation = useMutation({
-    mutationFn: (signal: Signal) => {
+    mutationFn: async (signal: Signal) => {
       setMintingSignalId(signal.id);
-      return campService.mintSignalAsParent(signal);
+      if (!isCampReady) throw new Error('Camp Network not ready. Please connect.');
+      const { tokenId } = await adminService.mintSignalAsParent(signal.id);
+      return tokenId;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-signals-approved'] });
@@ -90,8 +96,15 @@ export default function AdminDashboard() {
       setMintingSignalId(null);
     },
     onError: (error) => {
-      console.error('Minting failed:', error);
       setMintingSignalId(null);
+      const err = error as any;
+      const details =
+        err?.message ||
+        err?.error?.message ||
+        err?.response?.data?.error?.message ||
+        err?.response?.data ||
+        'Unknown error';
+      alert(`Failed to mint signal: ${details}`);
     },
   });
 
@@ -102,55 +115,44 @@ export default function AdminDashboard() {
     },
   });
 
-  const handleApprove = (signalId: string, notes?: string) => {
-    approveMutation.mutate({ signalId, notes });
-  };
-
-  const handleReject = (signalId: string, notes: string) => {
-    if (!notes.trim()) return;
-    rejectMutation.mutate({ signalId, notes });
-  };
-
+  const handleApprove = (signalId: string, notes?: string) => approveMutation.mutate({ signalId, notes });
+  const handleReject = (signalId: string, notes: string) => notes.trim() && rejectMutation.mutate({ signalId, notes });
   const handleMint = (signal: Signal) => {
-    console.log('Attempting to mint signal:', signal);
-    
-    if (!authenticated || !origin || !viem) {
-      console.error('Camp Network not authenticated!', { 
-        authenticated, 
-        hasOrigin: !!origin,
-        hasViem: !!viem,
-        hasJWT: !!jwt
-      });
-      setShowCampModal(true);
+    if (!originAuthed) return;
+    if (!isCampReady) {
+      alert('Camp Network not connected. Please check your connection.');
       return;
     }
-    
+    if (mintingSignalId) return;
     mintMutation.mutate(signal);
-  };
-
-  const handleGenerateSignals = () => {
-    generateMutation.mutate(generateCount);
   };
 
   const pendingSignals = pendingData?.signals || [];
   const approvedSignals = approvedData?.signals || [];
-  const isLoading = loadingPending || loadingApproved;
+  const isLoading = loading || loadingPending || loadingApproved;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {!authenticated && (
+      {!originAuthed && !loading && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Wallet className="w-5 h-5 text-yellow-600 mr-2" />
-              <div>
-                <h3 className="text-sm font-medium text-yellow-800">Camp Network Required</h3>
-                <p className="text-sm text-yellow-700">Connect to Camp Network to mint signals as IP assets</p>
-              </div>
+          <div className="flex items-center">
+            <Wallet className="w-5 h-5 text-yellow-600 mr-2" />
+            <div>
+              <h3 className="text-sm font-medium text-yellow-800">Camp Network Required</h3>
+              <p className="text-sm text-yellow-700">Connect to Camp Network to mint signals as IP assets</p>
             </div>
-            <Button onClick={() => setShowCampModal(true)} size="sm" variant="primary">
-              Connect Camp Network
-            </Button>
+          </div>
+        </div>
+      )}
+
+      {!!campConnectionError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <div>
+              <h3 className="text-sm font-medium text-red-800">Camp Network Connection Issue</h3>
+              <p className="text-sm text-red-700">{campConnectionError}</p>
+            </div>
           </div>
         </div>
       )}
@@ -159,11 +161,12 @@ export default function AdminDashboard() {
         <div>
           <h1 className="text-3xl font-bold text-neutral-900">Admin Dashboard</h1>
           <p className="text-neutral-600">Review and manage platform signals</p>
-          {authenticated && (
-            <p className="text-sm text-green-600 mt-1">
-              ✓ Camp Network Connected
-            </p>
-          )}
+          <div className="flex items-center gap-4 mt-2">
+            {originAuthed && walletAddress && (
+              <p className="text-sm text-green-600">✓ Wallet Connected ({walletAddress.slice(0, 6)}...{walletAddress.slice(-4)})</p>
+            )}
+            {isCampReady && <p className="text-sm text-green-600">✓ Camp Network Ready</p>}
+          </div>
         </div>
         <div className="flex items-center space-x-3">
           <Button variant="secondary" onClick={() => setShowFilters(!showFilters)} className="flex items-center">
@@ -172,10 +175,7 @@ export default function AdminDashboard() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => {
-              refetchPending();
-              refetchApproved();
-            }}
+            onClick={() => { refetchPending(); refetchApproved(); }}
             disabled={isLoading}
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
@@ -283,7 +283,11 @@ export default function AdminDashboard() {
               onChange={(e) => setGenerateCount(Number(e.target.value) || 25)}
               className="w-20 px-3 py-2 border border-neutral-200 rounded-md"
             />
-            <Button onClick={handleGenerateSignals} disabled={generateMutation.isPending} className="flex items-center">
+            <Button
+              onClick={() => generateMutation.mutate(generateCount)}
+              disabled={generateMutation.isPending}
+              className="flex items-center"
+            >
               {generateMutation.isPending ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
               ) : (
@@ -303,7 +307,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-neutral-900">Pending Review ({pendingSignals.length})</h2>
-            {pendingSignals.map((signal: Signal) => (
+            {pendingSignals.map((signal) => (
               <div key={signal.id} className="bg-white p-4 rounded-lg border border-neutral-200">
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -371,7 +375,7 @@ export default function AdminDashboard() {
 
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-neutral-900">Approved for Minting ({approvedSignals.length})</h2>
-            {approvedSignals.map((signal: Signal) => (
+            {approvedSignals.map((signal) => (
               <div key={signal.id} className="p-4 rounded-lg border border-green-200 bg-green-50">
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -379,8 +383,13 @@ export default function AdminDashboard() {
                     <p className="text-sm text-neutral-600">
                       {signal.side.toUpperCase()} • {signal.confidence}% confidence
                     </p>
+                    {signal.registeredAsIP && signal.ipTokenId && (
+                      <p className="text-xs text-green-600 mt-1">✅ Minted as IP (Token #{signal.ipTokenId})</p>
+                    )}
                   </div>
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">APPROVED</span>
+                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                    {signal.registeredAsIP ? 'MINTED' : 'APPROVED'}
+                  </span>
                 </div>
 
                 {signal.adminNotes && (
@@ -391,41 +400,25 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => handleMint(signal)}
-                  disabled={mintingSignalId === signal.id || !authenticated}
-                  className="flex items-center"
-                >
-                  {mintingSignalId === signal.id ? (
-                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
-                  ) : (
-                    <Coins className="w-3 h-3 mr-1" />
-                  )}
-                  Mint as IP
-                </Button>
+                {!signal.registeredAsIP && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => handleMint(signal)}
+                    disabled={mintingSignalId === signal.id || !isCampReady}
+                    className="flex items-center"
+                    title={!isCampReady ? 'Camp Network not connected' : 'Mint signal as IP asset'}
+                  >
+                    {mintingSignalId === signal.id ? (
+                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                    ) : (
+                      <Coins className="w-3 h-3 mr-1" />
+                    )}
+                    {mintingSignalId === signal.id ? 'Minting...' : 'Mint as IP'}
+                  </Button>
+                )}
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {showCampModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <h2 className="text-xl font-semibold mb-4">Connect to Camp Network</h2>
-            <p className="text-neutral-600 mb-4">
-              You need to authenticate with Camp Network to mint signals as IP assets.
-            </p>
-            <div className="flex items-center justify-between">
-              <Button variant="secondary" onClick={() => setShowCampModal(false)}>
-                Cancel
-              </Button>
-              <div className="ml-4">
-                <CampModal injectButton={false} />
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -462,16 +455,6 @@ export default function AdminDashboard() {
                   <p className="text-sm text-neutral-500">Take Profit</p>
                   <p className="font-medium">${selectedSignal.takeProfit ?? 'N/A'}</p>
                 </div>
-              </div>
-
-              <div>
-                <p className="text-sm text-neutral-500 mb-2">Technical Analysis</p>
-                <div className="bg-neutral-50 p-3 rounded text-sm">{selectedSignal.analysis.technicalAnalysis}</div>
-              </div>
-
-              <div>
-                <p className="text-sm text-neutral-500 mb-2">Market Analysis</p>
-                <div className="bg-neutral-50 p-3 rounded text-sm">{selectedSignal.analysis.marketAnalysis}</div>
               </div>
 
               <div>

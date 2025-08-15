@@ -25,64 +25,40 @@ class ApiClient {
 
   setToken(token: string | null) {
     this.token = token;
-    if (token) {
-      localStorage.setItem('auth_token', token);
-    } else {
-      localStorage.removeItem('auth_token');
-    }
+    if (token) localStorage.setItem('auth_token', token);
+    else localStorage.removeItem('auth_token');
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
     };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
 
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
-    }
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
-
-      if (!response.ok) {
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+      let msg = 'API request failed';
+      try {
         const errorData: ApiError = await response.json();
-        throw new Error(errorData.error.message || 'API request failed');
-      }
-
-      const data: ApiResponse<T> = await response.json();
-      return data.data;
-    } catch (error) {
-      console.error('API request error:', error);
-      throw error;
+        msg = errorData.error?.message || msg;
+      } catch {}
+      throw new Error(msg);
     }
+    const data: ApiResponse<T> = await response.json();
+    return data.data;
   }
 
   async get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });
   }
-
   async post<T>(endpoint: string, data?: any): Promise<T> {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
-    });
+    return this.request<T>(endpoint, { method: 'POST', body: data ? JSON.stringify(data) : undefined });
   }
-
   async put<T>(endpoint: string, data?: any): Promise<T> {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
-    });
+    return this.request<T>(endpoint, { method: 'PUT', body: data ? JSON.stringify(data) : undefined });
   }
-
   async delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
