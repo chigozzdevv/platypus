@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, AlertCircle, Zap, Info } from 'lucide-react';
 import { signalsService } from '@/services/signals';
+import Button from '@/components/button';
+import CheckButton from '@/components/check-button';
 import type { Signal, ImproveSignalRequest, NumericOrComposite } from '@/types/signals';
 
 interface ImprovementModalProps {
@@ -117,15 +119,12 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
 
       const score = calcScore(payload);
       setQualityScore(score);
-      const ok = score >= 50;
-      setCanMint(ok);
-      if (ok) onSuccess();
+      setCanMint(score >= 50);
     } catch (e: any) {
       const msg: string = e?.message || '';
       const m = msg.match(/\((\d+)\/100\)/);
       if (m) {
-        const s = Number(m[1]);
-        setQualityScore(s);
+        setQualityScore(Number(m[1]));
         setCanMint(false);
       } else {
         setQualityScore(20);
@@ -190,7 +189,7 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
-            onClick={onClose}
+            onClick={() => { if (!minting && !checking) onClose(); }}
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.98, y: 8 }}
@@ -204,55 +203,64 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                 <h2 className="text-xl font-semibold text-neutral-900">Improve Signal</h2>
                 <p className="text-sm text-neutral-500">{signal.symbol} — Select changes, justify, then evaluate.</p>
               </div>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={onClose}
-                className="p-2 rounded-lg hover:bg-neutral-100 active:scale-95 transition"
-                aria-label="Close"
+                title="Close"
+                className="p-2 rounded-lg hover:bg-neutral-100 active:scale-95 transition h-auto"
+                disabled={minting || checking}
               >
                 <X className="w-5 h-5 text-neutral-700" />
-              </button>
+              </Button>
             </div>
 
-            <div className="px-6 py-5 space-y-6 max-h:[72vh] max-h-[72vh] overflow-y-auto">
+            <div className="px-6 py-5 space-y-6 max-h-[72vh] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => setEditEntry(v => !v)}
-                  className={`text-left rounded-lg border p-4 transition ${
+                  className={`text-left rounded-lg border p-4 transition w-full h-auto ${
                     editEntry ? 'border-blue-500 bg-blue-50' : 'border-neutral-300 hover:border-neutral-400'
                   }`}
+                  disabled={minting || checking}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between w-full">
                     <span className="font-medium">Entry</span>
                     <input type="checkbox" checked={editEntry} readOnly />
                   </div>
-                  <p className="text-xs text-neutral-500 mt-1">Current: ${signal.entryPrice}</p>
-                </button>
+                  <p className="text-xs text-neutral-500 mt-1 w-full">Current: ${signal.entryPrice}</p>
+                </Button>
 
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => setEditSL(v => !v)}
-                  className={`text-left rounded-lg border p-4 transition ${
+                  className={`text-left rounded-lg border p-4 transition w-full h-auto ${
                     editSL ? 'border-blue-500 bg-blue-50' : 'border-neutral-300 hover:border-neutral-400'
                   }`}
+                  disabled={minting || checking}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between w-full">
                     <span className="font-medium">Stop Loss</span>
                     <input type="checkbox" checked={editSL} readOnly />
                   </div>
-                  <p className="text-xs text-neutral-500 mt-1">Current: ${signal.stopLoss ?? '-'}</p>
-                </button>
+                  <p className="text-xs text-neutral-500 mt-1 w-full">Current: ${signal.stopLoss ?? '-'}</p>
+                </Button>
 
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => setEditTP(v => !v)}
-                  className={`text-left rounded-lg border p-4 transition ${
+                  className={`text-left rounded-lg border p-4 transition w-full h-auto ${
                     editTP ? 'border-blue-500 bg-blue-50' : 'border-neutral-300 hover:border-neutral-400'
                   }`}
+                  disabled={minting || checking}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between w-full">
                     <span className="font-medium">Take Profit</span>
                     <input type="checkbox" checked={editTP} readOnly />
                   </div>
-                  <p className="text-xs text-neutral-500 mt-1">Current: ${signal.takeProfit ?? '-'}</p>
-                </button>
+                  <p className="text-xs text-neutral-500 mt-1 w-full">Current: ${signal.takeProfit ?? '-'}</p>
+                </Button>
               </div>
 
               {editEntry && (
@@ -264,6 +272,7 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={newEntry}
                     onChange={e => setNewEntry(Number(e.target.value))}
+                    disabled={minting || checking}
                   />
                 </div>
               )}
@@ -277,6 +286,7 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={newSL}
                     onChange={e => setNewSL(Number(e.target.value))}
+                    disabled={minting || checking}
                   />
                 </div>
               )}
@@ -290,6 +300,7 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={newTP}
                     onChange={e => setNewTP(Number(e.target.value))}
+                    disabled={minting || checking}
                   />
                 </div>
               )}
@@ -316,6 +327,7 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                       placeholder="Explain your improvement with technical analysis, market structure, liquidity, momentum, risk, etc."
                       value={reasoning}
                       onChange={e => setReasoning(e.target.value)}
+                      disabled={minting || checking}
                     />
                     <div className="mt-1 text-xs text-neutral-500">{reasoning.length}/1000</div>
                   </div>
@@ -350,17 +362,19 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
             </div>
 
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-neutral-200">
-              <button
+              <Button
+                variant="secondary"
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg border border-neutral-300 hover:bg-neutral-50 transition"
+                className="px-4 py-2 rounded-lg border border-neutral-300 hover:bg-neutral-50"
+                disabled={minting || checking}
               >
                 Cancel
-              </button>
+              </Button>
               {canMint ? (
-                <button
+                <Button
                   onClick={handleMint}
                   disabled={minting}
-                  className="inline-flex items-center justify-center rounded-lg bg-green-600 px-5 py-2.5 text-white font-medium hover:bg-green-700 disabled:opacity-60"
+                  className="inline-flex items-center justify-center rounded-lg px-5 py-2.5 text-white font-medium bg-green-600 hover:bg-green-700 disabled:opacity-60"
                 >
                   {minting ? (
                     <span className="inline-flex items-center">
@@ -373,25 +387,14 @@ export default function ImprovementModal({ signal, isOpen, onClose, onSuccess }:
                       Mint as Derivative IP
                     </span>
                   )}
-                </button>
+                </Button>
               ) : (
-                <button
+                <CheckButton
                   onClick={handleCheck}
-                  disabled={checking || !hasAnyChange}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-white font-medium hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {checking ? (
-                    <span className="inline-flex items-center">
-                      <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-b-transparent" />
-                      Checking…
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center">
-                      <AlertCircle className="w-4 h-4 mr-2" />
-                      Check Improvement Impact
-                    </span>
-                  )}
-                </button>
+                  loading={checking}
+                  disabled={!hasAnyChange}
+                  label="Ask AI to Check"
+                />
               )}
             </div>
           </motion.div>

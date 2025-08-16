@@ -158,7 +158,6 @@ export class SignalsController {
     sendSuccess(res, result);
   });
 
-
   getImprovableSignals = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { symbol, minConfidence, sortBy = 'newest', limit = '20', offset = '0' } = req.query;
     const result = await signalsService.getImprovableSignals({
@@ -196,6 +195,23 @@ export class SignalsController {
     });
     sendSuccess(res, result);
   });
+
+
+  getMarketplaceImprovements = asyncHandler(async (req, res) => {
+    const { symbol, minConfidence, sortBy = 'newest', limit = '20', offset = '0' } = req.query;
+    const result = await signalsService.getMarketplaceImprovements({
+      symbol: symbol as string,
+      minConfidence: minConfidence ? Number(minConfidence) : undefined,
+      sortBy: sortBy as any,
+      limit: Number(limit),
+      offset: Number(offset),
+    });
+    sendSuccess(res, {
+      signals: result.signals.map(s => s.toJSON()),
+      total: result.total,
+    });
+  });
+
 
   approveSignal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId } = req.params;

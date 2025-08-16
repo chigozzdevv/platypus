@@ -65,15 +65,18 @@ export const adminService = {
 
   async markSignalMinted(
     signalId: string,
-    payload: { tokenId: string; transactionHash: string }
+    payload: { tokenId: string; transactionHash?: string }
   ): Promise<{ success: boolean }> {
-    return api.put(P.MARK_MINTED(signalId), payload);
+    const body: any = { tokenId: payload.tokenId };
+    if (payload.transactionHash) body.transactionHash = payload.transactionHash;
+    return api.put(P.MARK_MINTED(signalId), body);
   },
 
-  async mintSignalAsParent(signalId: string): Promise<{ tokenId: string; transactionHash: string }> {
+  async mintSignalAsParent(signalId: string): Promise<{ tokenId: string; transactionHash?: string }> {
     const { signal } = await signalsService.getSignal(signalId);
     const { tokenId, transactionHash } = await campService.mintSignalAsParent(signal);
-    await api.put(P.MARK_MINTED(signalId), { tokenId, transactionHash });
+    if (!tokenId) throw new Error("Mint did not return a tokenId");
+    await this.markSignalMinted(signalId, { tokenId, transactionHash });
     return { tokenId, transactionHash };
   },
 

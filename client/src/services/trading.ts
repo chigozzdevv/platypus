@@ -36,10 +36,9 @@ export const tradingService = {
     riskPercentage?: number;
     winRate?: number;
   }): Promise<PositionCalculation> {
-    return api.post('/trading/calculate-position', params);
+    return api.post('/trading/calculate-size', params);
   },
 
-  // Execute trade directly from signal
   async executeSignalTrade(signal: Signal, params: {
     riskPercentage: number;
     maxLeverage: number;
@@ -56,10 +55,9 @@ export const tradingService = {
   },
 
   async getAccountInfo(): Promise<AccountInfo> {
-    return api.get('/trading/account');
+    return api.get('/trading/account-info');
   },
 
-  // Close specific position
   async closePosition(symbol: string, percentage: number = 100): Promise<{
     success: boolean;
     message: string;

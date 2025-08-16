@@ -33,6 +33,7 @@ const improvementIndexSchema=z.object({
 router.get('/public',signalsController.getPublicSignals);
 router.get('/improvable',signalsController.getImprovableSignals);
 router.get('/search',signalsController.searchSignals);
+router.get('/marketplace', signalsController.getMarketplaceImprovements);
 
 router.use(authMiddleware);
 

@@ -243,6 +243,42 @@ class SignalsService {
     return signal;
   }
 
+  async getMarketplaceImprovements(filters: {
+    symbol?: string;
+    minConfidence?: number;
+    sortBy?: 'newest' | 'confidence';
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ signals: SignalDocument[]; total: number }> {
+    const query: any = {
+      isPublic: true,
+      status: 'active',
+      'improvements.registeredAsIP': true,
+      expiresAt: { $gte: new Date() },
+    };
+
+    if (filters.symbol) query.symbol = filters.symbol.toUpperCase();
+    if (filters.minConfidence) query.confidence = { $gte: filters.minConfidence };
+
+    const limit = Math.min(filters.limit || 20, 100);
+    const offset = filters.offset || 0;
+
+    let sortOption: any = { 'improvements.createdAt': -1, createdAt: -1 };
+    if (filters.sortBy === 'confidence') sortOption = { confidence: -1 };
+
+    const [signals, total] = await Promise.all([
+      Signal.find(query)
+        .populate('creator', 'username avatar reputation')
+        .sort(sortOption)
+        .limit(limit)
+        .skip(offset),
+      Signal.countDocuments(query),
+    ]);
+
+    return { signals, total };
+  }
+
+
   async getImprovableSignals(filters: {
     symbol?: string;
     minConfidence?: number;
