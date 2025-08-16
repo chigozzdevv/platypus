@@ -44,13 +44,17 @@ export default function Royalties() {
     loadRoyaltyData();
   }, []);
 
+  const parseAmount = (s: string | number | null | undefined) => {
+    if (typeof s === 'number') return isFinite(s) ? s : 0;
+    if (!s) return 0;
+    const n = parseFloat(String(s)); // handles "0.1234 CAMP" etc.
+    return isNaN(n) ? 0 : n;
+  };
+
   const loadRoyaltyData = async () => {
     setLoading(true);
     try {
-      await Promise.all([
-        loadRoyaltyBalance(),
-        loadUserIPAssets()
-      ]);
+      await Promise.all([loadRoyaltyBalance(), loadUserIPAssets()]);
     } catch (error) {
       console.error('Failed to load royalty data:', error);
     } finally {
@@ -60,17 +64,14 @@ export default function Royalties() {
 
   const loadRoyaltyBalance = async () => {
     try {
-      // Get royalty balance from Camp Network
-      const balance = await campService.getRoyaltyBalance();
-      
-      // Use real balance data from Camp Network
+      const balanceStr = await campService.getRoyaltyBalance();
+      const total = parseAmount(balanceStr);
       const realData: RoyaltyData = {
-        totalEarned: parseFloat(balance) || 0,
-        claimableAmount: parseFloat(balance) * 0.15 || 0, // 15% available to claim
-        totalClaims: 0, // This should come from backend
-        monthlyBreakdown: [] // This should come from backend analytics
+        totalEarned: total,
+        claimableAmount: total * 0.15,
+        totalClaims: 0,
+        monthlyBreakdown: [],
       };
-      
       setRoyaltyData(realData);
     } catch (error) {
       console.error('Failed to load royalty balance:', error);
@@ -80,9 +81,8 @@ export default function Royalties() {
   const loadUserIPAssets = async () => {
     try {
       const userSignals = await signalsService.getUserSignals();
-      
       const assets: UserIPAsset[] = [];
-      
+
       userSignals.signals
         .filter((signal: Signal) => signal.registeredAsIP && signal.ipTokenId)
         .forEach((signal: Signal) => {
@@ -93,15 +93,14 @@ export default function Royalties() {
             type: 'signal',
             symbol: signal.symbol,
             confidence: signal.confidence,
-            totalEarnings: 0, // Real earnings data should come from backend
+            totalEarnings: 0,
             totalSales: signal.totalUsage || 0,
-            monthlyEarnings: 0, // Real monthly data should come from backend
+            monthlyEarnings: 0,
             createdAt: signal.createdAt,
-            isActive: !signalsService.isSignalExpired(signal)
+            isActive: !signalsService.isSignalExpired(signal),
           });
 
-          // Process improvements on this signal
-          signal.improvements?.forEach(improvement => {
+          signal.improvements?.forEach((improvement) => {
             if (improvement.registeredAsIP && improvement.ipTokenId && improvement.creator.id === user?.id) {
               assets.push({
                 id: improvement.id,
@@ -110,11 +109,11 @@ export default function Royalties() {
                 type: 'improvement',
                 symbol: signal.symbol,
                 confidence: signal.confidence,
-                totalEarnings: 0, // Real earnings data should come from backend
-                totalSales: 0, // Real sales data should come from backend
-                monthlyEarnings: 0, // Real monthly data should come from backend
+                totalEarnings: 0,
+                totalSales: 0,
+                monthlyEarnings: 0,
                 createdAt: improvement.createdAt,
-                isActive: !signalsService.isSignalExpired(signal)
+                isActive: !signalsService.isSignalExpired(signal),
               });
             }
           });
@@ -133,13 +132,12 @@ export default function Royalties() {
       await loadRoyaltyData();
     } catch (error) {
       console.error('Failed to claim royalties:', error);
-      // For now, just update the UI since claiming might not be implemented
       if (royaltyData) {
         setRoyaltyData({
           ...royaltyData,
           totalEarned: royaltyData.totalEarned + royaltyData.claimableAmount,
           claimableAmount: 0,
-          totalClaims: royaltyData.totalClaims + 1
+          totalClaims: royaltyData.totalClaims + 1,
         });
       }
     } finally {
@@ -154,21 +152,20 @@ export default function Royalties() {
   };
 
   const exportRoyaltyData = () => {
-    const csvData = ipAssets.map(asset => ({
+    const csvData = ipAssets.map((asset) => ({
       'Asset Name': asset.name,
-      'Type': asset.type,
-      'Symbol': asset.symbol,
+      Type: asset.type,
+      Symbol: asset.symbol,
       'Total Earnings': asset.totalEarnings,
       'Total Sales': asset.totalSales,
       'Monthly Earnings': asset.monthlyEarnings,
-      'Created': new Date(asset.createdAt).toLocaleDateString(),
-      'Status': asset.isActive ? 'Active' : 'Expired'
+      Created: new Date(asset.createdAt).toLocaleDateString(),
+      Status: asset.isActive ? 'Active' : 'Expired',
     }));
 
-    const csvContent = [
-      Object.keys(csvData[0]).join(','),
-      ...csvData.map(row => Object.values(row).join(','))
-    ].join('\n');
+    if (csvData.length === 0) return;
+
+    const csvContent = [Object.keys(csvData[0]).join(','), ...csvData.map((row) => Object.values(row).join(','))].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -194,10 +191,7 @@ export default function Royalties() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="text-center py-16">
           <p className="text-neutral-500">Failed to load royalty data.</p>
-          <button 
-            onClick={handleRefresh}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
+          <button onClick={handleRefresh} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
             Try Again
           </button>
         </div>
@@ -205,26 +199,23 @@ export default function Royalties() {
     );
   }
 
-  const monthlyGrowth = royaltyData.monthlyBreakdown.length >= 2
-    ? ((royaltyData.monthlyBreakdown[royaltyData.monthlyBreakdown.length - 1].earnings - 
-        royaltyData.monthlyBreakdown[royaltyData.monthlyBreakdown.length - 2].earnings) / 
-       royaltyData.monthlyBreakdown[royaltyData.monthlyBreakdown.length - 2].earnings) * 100
-    : 0;
+  const monthlyGrowth =
+    royaltyData.monthlyBreakdown.length >= 2
+      ? ((royaltyData.monthlyBreakdown[royaltyData.monthlyBreakdown.length - 1].earnings -
+          royaltyData.monthlyBreakdown[royaltyData.monthlyBreakdown.length - 2].earnings) /
+          royaltyData.monthlyBreakdown[royaltyData.monthlyBreakdown.length - 2].earnings) *
+        100
+      : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-      >
-        {/* Header */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-neutral-900 mb-2">Royalties & Earnings</h1>
             <p className="text-neutral-600">Track your revenue from signal creation and improvements</p>
           </div>
-          
+
           <div className="flex items-center gap-3">
             <button
               onClick={exportRoyaltyData}
@@ -233,7 +224,7 @@ export default function Royalties() {
               <Download className="w-4 h-4 mr-2" />
               Export Report
             </button>
-            
+
             <button
               onClick={handleRefresh}
               disabled={refreshing}
@@ -245,7 +236,6 @@ export default function Royalties() {
           </div>
         </div>
 
-        {/* Revenue Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -257,16 +247,13 @@ export default function Royalties() {
               <div className="bg-green-100 rounded-lg p-2">
                 <DollarSign className="w-5 h-5 text-green-600" />
               </div>
-              <span className={`text-sm font-medium ${
-                monthlyGrowth >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {monthlyGrowth >= 0 ? '+' : ''}{monthlyGrowth.toFixed(1)}%
+              <span className={`text-sm font-medium ${monthlyGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {monthlyGrowth >= 0 ? '+' : ''}
+                {monthlyGrowth.toFixed(1)}%
               </span>
             </div>
             <div className="mb-1">
-              <p className="text-2xl font-bold text-neutral-900">
-                {formatCurrency(royaltyData.totalEarned)}
-              </p>
+              <p className="text-2xl font-bold text-neutral-900">{formatCurrency(royaltyData.totalEarned)}</p>
             </div>
             <p className="text-sm text-neutral-500">Total Earned</p>
           </motion.div>
@@ -283,9 +270,7 @@ export default function Royalties() {
               </div>
             </div>
             <div className="mb-1">
-              <p className="text-2xl font-bold text-neutral-900">
-                {formatCurrency(royaltyData.claimableAmount)}
-              </p>
+              <p className="text-2xl font-bold text-neutral-900">{formatCurrency(royaltyData.claimableAmount)}</p>
             </div>
             <p className="text-sm text-neutral-500">Available to Claim</p>
           </motion.div>
@@ -325,7 +310,6 @@ export default function Royalties() {
           </motion.div>
         </div>
 
-        {/* Claim Royalties */}
         {royaltyData.claimableAmount > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -335,14 +319,12 @@ export default function Royalties() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-green-900 mb-1">
-                  Royalties Ready to Claim
-                </h3>
+                <h3 className="text-lg font-semibold text-green-900 mb-1">Royalties Ready to Claim</h3>
                 <p className="text-green-700">
                   You have {formatCurrency(royaltyData.claimableAmount)} available to claim from your IP sales
                 </p>
               </div>
-              
+
               <button
                 onClick={handleClaimRoyalties}
                 disabled={claiming}
@@ -365,7 +347,6 @@ export default function Royalties() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Monthly Breakdown */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -381,9 +362,7 @@ export default function Royalties() {
                     <span className="font-medium text-neutral-900">{month.month}</span>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-neutral-900">
-                      {formatCurrency(month.earnings)}
-                    </p>
+                    <p className="font-semibold text-neutral-900">{formatCurrency(month.earnings)}</p>
                     <p className="text-sm text-neutral-500">{month.claims} claims</p>
                   </div>
                 </div>
@@ -391,7 +370,6 @@ export default function Royalties() {
             </div>
           </motion.div>
 
-          {/* Your IP Assets */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -399,56 +377,45 @@ export default function Royalties() {
             className="lg:col-span-2 bg-white rounded-lg border border-neutral-200 p-6"
           >
             <h3 className="text-lg font-semibold text-neutral-900 mb-4">Your IP Assets</h3>
-            
+
             {ipAssets.length > 0 ? (
               <div className="space-y-4">
                 {ipAssets.map((asset) => (
-                  <div key={asset.id} className="flex items-center justify-between p-4 border border-neutral-100 rounded-lg hover:bg-neutral-50 transition-colors">
+                  <div
+                    key={asset.id}
+                    className="flex items-center justify-between p-4 border border-neutral-100 rounded-lg hover:bg-neutral-50 transition-colors"
+                  >
                     <div className="flex items-center space-x-4">
-                      <div className={`p-2 rounded-lg ${
-                        asset.type === 'improvement' 
-                          ? 'bg-purple-100' 
-                          : 'bg-blue-100'
-                      }`}>
+                      <div className={`p-2 rounded-lg ${asset.type === 'improvement' ? 'bg-purple-100' : 'bg-blue-100'}`}>
                         {asset.type === 'improvement' ? (
                           <Zap className="w-5 h-5 text-purple-600" />
                         ) : (
                           <BarChart3 className="w-5 h-5 text-blue-600" />
                         )}
                       </div>
-                      
+
                       <div>
                         <h4 className="font-medium text-neutral-900">{asset.name}</h4>
                         <div className="flex items-center space-x-3 mt-1">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            asset.type === 'improvement' 
-                              ? 'bg-purple-100 text-purple-800' 
-                              : 'bg-blue-100 text-blue-800'
-                          }`}>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              asset.type === 'improvement' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
                             {asset.type === 'improvement' ? 'Improvement' : 'Base Signal'}
                           </span>
-                          <span className="text-sm text-neutral-500">
-                            {asset.confidence}% confidence
-                          </span>
-                          <span className="text-sm text-neutral-500">
-                            {asset.totalSales} sales
-                          </span>
+                          <span className="text-sm text-neutral-500">{asset.confidence}% confidence</span>
+                          <span className="text-sm text-neutral-500">{asset.totalSales} sales</span>
                           {!asset.isActive && (
-                            <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
-                              Expired
-                            </span>
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">Expired</span>
                           )}
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="text-right">
-                      <p className="font-semibold text-green-600">
-                        {formatCurrency(asset.totalEarnings)}
-                      </p>
-                      <p className="text-sm text-neutral-500">
-                        +{formatCurrency(asset.monthlyEarnings)} this month
-                      </p>
+                      <p className="font-semibold text-green-600">{formatCurrency(asset.totalEarnings)}</p>
+                      <p className="text-sm text-neutral-500">+{formatCurrency(asset.monthlyEarnings)} this month</p>
                     </div>
                   </div>
                 ))}
@@ -459,18 +426,16 @@ export default function Royalties() {
                   <Star className="w-8 h-8 text-neutral-600" />
                 </div>
                 <h4 className="text-lg font-medium text-neutral-900 mb-2">No IP Assets Yet</h4>
-                <p className="text-neutral-600 mb-4">
-                  Create signals or improve existing ones to start earning royalties
-                </p>
+                <p className="text-neutral-600 mb-4">Create signals or improve existing ones to start earning royalties</p>
                 <div className="flex justify-center space-x-3">
-                  <button 
-                    onClick={() => window.location.href = '/dashboard/signals'}
+                  <button
+                    onClick={() => (window.location.href = '/dashboard/signals')}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     Improve Signals
                   </button>
-                  <button 
-                    onClick={() => window.location.href = '/dashboard/marketplace'}
+                  <button
+                    onClick={() => (window.location.href = '/dashboard/marketplace')}
                     className="px-4 py-2 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
                   >
                     Browse Marketplace

@@ -437,52 +437,70 @@ class CampService {
   }
 
   // Add royalty balance and claim methods to fulfill vercel error (not real implementation, will do that after adding subgraph)
-  
-  async getRoyaltyBalance(): Promise<{ claimable: bigint; token: Address | null; symbol: string; comingSoon: boolean }> {
+
+  async getRoyaltyBalance(): Promise<string> {
     const campAuth = (window as any).__campAuth;
     const origin = campAuth?.origin;
-    const fallback = { claimable: 0n, token: null as Address | null, symbol: 'CAMP', comingSoon: true };
-    if (!origin) return fallback;
+    const fallback = 'Coming soon';
+
+    const format = (amt: bigint, decimals = 18, precision = 4) => {
+      const d = 10n ** BigInt(decimals);
+      const whole = amt / d;
+      const frac = amt % d;
+      const fracStr = frac.toString().padStart(decimals, '0').slice(0, precision);
+      return `${whole.toString()}.${fracStr}`;
+    };
+
     try {
-      if (origin.getRoyaltyBalance) {
-        const r = await origin.getRoyaltyBalance();
-        const toBig = (v: any) => {
-          try {
-            if (typeof v === 'bigint') return v;
-            if (typeof v === 'number') return BigInt(Math.floor(v));
-            if (typeof v === 'string' && v.trim()) return BigInt(v);
-          } catch {}
-          return 0n;
-        };
-        return {
-          claimable: toBig(r?.amount ?? r?.claimable ?? 0),
-          token: (r?.token as Address) ?? null,
-          symbol: r?.symbol ?? 'CAMP',
-          comingSoon: false,
-        };
-      }
-    } catch {}
-    return fallback;
+      if (!origin || !origin.getRoyaltyBalance) return fallback;
+      const r = await origin.getRoyaltyBalance();
+      const raw =
+        typeof r?.amount === 'bigint' ? r.amount :
+        typeof r?.claimable === 'bigint' ? r.claimable :
+        typeof r?.amount === 'string' ? BigInt(r.amount) :
+        typeof r?.claimable === 'string' ? BigInt(r.claimable) :
+        0n;
+
+      const symbol = r?.symbol ?? 'CAMP';
+      return `${format(raw)} ${symbol}`;
+    } catch {
+      return fallback;
+    }
   }
 
-  async claimRoyalties(): Promise<{ transactionHash?: string; message: string; comingSoon: boolean }> {
+  async getRoyaltySymbol(): Promise<string> {
     const campAuth = (window as any).__campAuth;
     const origin = campAuth?.origin;
-    if (!origin || !origin.claimRoyalties) return { transactionHash: undefined, message: 'Coming soon', comingSoon: true };
+    try {
+      if (origin?.getRoyaltyBalance) {
+        const r = await origin.getRoyaltyBalance();
+        return r?.symbol ?? 'CAMP';
+      }
+    } catch {}
+    return 'CAMP';
+  }
+
+  async claimRoyalties(): Promise<string> {
+    const campAuth = (window as any).__campAuth;
+    const origin = campAuth?.origin;
+    if (!origin || !origin.claimRoyalties) return 'Coming soon';
+
     const viem = await this.ensureViemClient();
     if (typeof origin.setViemClient === 'function') origin.setViemClient(viem);
+
     const res = await origin.claimRoyalties();
     const txHash =
       (res as any)?.transactionHash ||
       (res as any)?.hash ||
-      (typeof res === 'string' ? (res as string) : undefined);
+      (typeof res === 'string' ? res : undefined);
+
     if (txHash) {
-      try {
-        await this.waitForTransaction(txHash);
-      } catch {}
+      try { await this.waitForTransaction(txHash); } catch {}
+      return 'Royalties claimed';
     }
-    return { transactionHash: txHash, message: 'Royalties claimed', comingSoon: false };
+    return 'Royalties claim submitted';
   }
+
 
   explorerTxUrl(txHash: string): string {
     const base = String(import.meta.env.VITE_EXPLORER_URL || 'https://explorer.camp.network');
