@@ -53,7 +53,7 @@ export default function Header() {
         </button>
         
         <a 
-          href="https://github.com/platypus-trading/docs"
+          href="https://github.com/chigozzdev/platypus"
           target="_blank"
           rel="noopener noreferrer"
           className="text-neutral-700 hover:text-neutral-900 text-sm md:text-base relative after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-neutral-900 after:scale-x-0 after:origin-right after:transition-transform hover:after:scale-x-100 hover:after:origin-left"
