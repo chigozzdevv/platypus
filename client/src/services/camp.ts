@@ -1,4 +1,6 @@
 import { createWalletClient, custom, http } from 'viem';
+import api from './api';
+
 
 type Address = `0x${string}`;
 
@@ -110,19 +112,11 @@ class CampService {
   }
 
   private async pinataUploadJSON(obj: any, name: string) {
-    const base = String(import.meta.env.VITE_API_BASE_URL || '');
-    const url = `${base.replace(/\/$/, '')}/signals/pin`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ content: obj, name }),
+    const out = await api.post<{ cid: string; url: string }>('/signals/pin', {
+      content: obj,
+      name,
     });
-    const text = await res.text();
-    let json: any;
-    try { json = JSON.parse(text); } catch { throw new Error(text || 'Pin JSON failed'); }
-    if (!res.ok) throw new Error(json?.error || 'Pin JSON failed');
-    return { cid: json.cid as string, url: json.url as string };
+    return out;
   }
 
   private async generateSignalPNGPoster(meta: {
