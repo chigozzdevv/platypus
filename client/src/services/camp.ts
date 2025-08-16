@@ -111,7 +111,7 @@ class CampService {
   }
 
   private async pinataUploadJSON(obj: any, name: string) {
-    const JWT = String(import.meta.env.VITE_PINATA_JWT || '');
+    const JWT = (this._jwt ?? String(import.meta.env.VITE_PINATA_JWT || '')).trim();
     const gateway = String(import.meta.env.VITE_PINATA_GATEWAY || '').replace(/\/$/, '');
     if (!JWT) throw new Error('Missing VITE_PINATA_JWT');
     const res = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
@@ -434,6 +434,54 @@ class CampService {
       console.error('Failed to get terms:', error);
       return null;
     }
+  }
+
+  // Add royalty balance and claim methods to fulfill vercel error (not real implementation, will do that after adding subgraph)
+  
+  async getRoyaltyBalance(): Promise<{ claimable: bigint; token: Address | null; symbol: string; comingSoon: boolean }> {
+    const campAuth = (window as any).__campAuth;
+    const origin = campAuth?.origin;
+    const fallback = { claimable: 0n, token: null as Address | null, symbol: 'CAMP', comingSoon: true };
+    if (!origin) return fallback;
+    try {
+      if (origin.getRoyaltyBalance) {
+        const r = await origin.getRoyaltyBalance();
+        const toBig = (v: any) => {
+          try {
+            if (typeof v === 'bigint') return v;
+            if (typeof v === 'number') return BigInt(Math.floor(v));
+            if (typeof v === 'string' && v.trim()) return BigInt(v);
+          } catch {}
+          return 0n;
+        };
+        return {
+          claimable: toBig(r?.amount ?? r?.claimable ?? 0),
+          token: (r?.token as Address) ?? null,
+          symbol: r?.symbol ?? 'CAMP',
+          comingSoon: false,
+        };
+      }
+    } catch {}
+    return fallback;
+  }
+
+  async claimRoyalties(): Promise<{ transactionHash?: string; message: string; comingSoon: boolean }> {
+    const campAuth = (window as any).__campAuth;
+    const origin = campAuth?.origin;
+    if (!origin || !origin.claimRoyalties) return { transactionHash: undefined, message: 'Coming soon', comingSoon: true };
+    const viem = await this.ensureViemClient();
+    if (typeof origin.setViemClient === 'function') origin.setViemClient(viem);
+    const res = await origin.claimRoyalties();
+    const txHash =
+      (res as any)?.transactionHash ||
+      (res as any)?.hash ||
+      (typeof res === 'string' ? (res as string) : undefined);
+    if (txHash) {
+      try {
+        await this.waitForTransaction(txHash);
+      } catch {}
+    }
+    return { transactionHash: txHash, message: 'Royalties claimed', comingSoon: false };
   }
 
   explorerTxUrl(txHash: string): string {
