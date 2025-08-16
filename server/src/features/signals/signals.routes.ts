@@ -30,6 +30,11 @@ const improvementIndexSchema=z.object({
   improvementIndex:z.string().regex(/^\d+$/,'Invalid improvement index'),
 });
 
+const pinJsonSchema = z.object({
+  content: z.any(),
+  name: z.string().max(120).optional(),
+});
+
 router.get('/public',signalsController.getPublicSignals);
 router.get('/improvable',signalsController.getImprovableSignals);
 router.get('/search',signalsController.searchSignals);
@@ -37,6 +42,7 @@ router.get('/marketplace', signalsController.getMarketplaceImprovements);
 
 router.use(authMiddleware);
 
+router.post('/pin', validateBody(pinJsonSchema), signalsController.pinJson);
 router.post('/',validateBody(createSignalSchema),signalsController.createSignal);
 router.get('/user/signals',signalsController.getUserSignals);
 router.get('/user/stats',signalsController.getUserStats);

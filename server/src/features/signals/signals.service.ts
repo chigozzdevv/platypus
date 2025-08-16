@@ -243,6 +243,36 @@ class SignalsService {
     return signal;
   }
 
+  async pinJsonToIpfs(content: any, name?: string): Promise<{ cid: string; url: string }> {
+    const jwt = process.env.PINATA_JWT;
+    if (!jwt) throw new CustomError('PINATA_JWT_MISSING', 500, 'Pinata JWT missing');
+
+    const resp = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        pinataContent: content,
+        pinataMetadata: name ? { name } : undefined,
+      }),
+    });
+
+    const text = await resp.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { throw new CustomError('PINATA_ERROR', resp.status, text.slice(0, 300)); }
+    if (!resp.ok) {
+      const msg = json?.error?.reason || json?.error || json?.message || 'Pinata upload failed';
+      throw new CustomError('PINATA_ERROR', resp.status, msg);
+    }
+
+    const cid: string = json?.IpfsHash || json?.cid;
+    const gateway = (process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud').replace(/\/$/, '');
+    return { cid, url: `${gateway}/ipfs/${cid}` };
+  }
+
+
   async getMarketplaceImprovements(filters: {
     symbol?: string;
     minConfidence?: number;

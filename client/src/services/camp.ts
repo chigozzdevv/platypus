@@ -11,7 +11,6 @@ type LicenseTermsSDK = {
 
 class CampService {
   private _viem: any | null = null;
-  private _jwt: string | null = null;
   private _wallet: Address | null = null;
 
   setClients({ viem }: { viem: any }) {
@@ -19,7 +18,7 @@ class CampService {
   }
 
   setJwt(jwt: string) {
-    this._jwt = jwt || null;
+    void jwt;
   }
 
   setWalletAddress(addr: string | null | undefined) {
@@ -111,28 +110,19 @@ class CampService {
   }
 
   private async pinataUploadJSON(obj: any, name: string) {
-    const JWT = (this._jwt ?? String(import.meta.env.VITE_PINATA_JWT || '')).trim();
-    const gateway = String(import.meta.env.VITE_PINATA_GATEWAY || '').replace(/\/$/, '');
-    if (!JWT) throw new Error('Missing VITE_PINATA_JWT');
-    const res = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
+    const base = String(import.meta.env.VITE_API_BASE_URL || '');
+    const url = `${base.replace(/\/$/, '')}/signals/pin`;
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${JWT}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pinataContent: obj, pinataMetadata: { name } }),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ content: obj, name }),
     });
     const text = await res.text();
-    let json: any = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      throw new Error(text?.slice(0, 300) || 'Pinata error');
-    }
-    if (!res.ok) {
-      const msg = json?.error?.reason || json?.error || json?.message || 'Pinata upload failed';
-      throw new Error(msg);
-    }
-    const cid: string = json?.IpfsHash || json?.cid;
-    const url = gateway ? `${gateway}/ipfs/${cid}` : `https://gateway.pinata.cloud/ipfs/${cid}`;
-    return { cid, url };
+    let json: any;
+    try { json = JSON.parse(text); } catch { throw new Error(text || 'Pin JSON failed'); }
+    if (!res.ok) throw new Error(json?.error || 'Pin JSON failed');
+    return { cid: json.cid as string, url: json.url as string };
   }
 
   private async generateSignalPNGPoster(meta: {

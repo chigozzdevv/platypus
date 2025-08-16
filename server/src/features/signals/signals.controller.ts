@@ -221,6 +221,17 @@ export class SignalsController {
     logger.info('Signal approved by admin', { signalId });
   });
 
+  pinJson = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { content, name } = req.body || {};
+    if (typeof content === 'undefined') {
+      sendError(res, 'MISSING_CONTENT', 'content is required', 400);
+      return;
+    }
+    const out = await signalsService.pinJsonToIpfs(content, name);
+    sendSuccess(res, out);
+  });
+
+
   rejectSignal = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { signalId } = req.params;
     const { adminNotes } = req.body;
